@@ -1,0 +1,7 @@
+:root { --ink:#24362d; --muted:#78847b; --cream:#f5f1e8; --paper:#fffdf8; --green:#526e57; --sage:#dce4d6; --line:#deddd1; --rust:#bd7658; --mono:'Cascadia Mono','Courier New',monospace; --sans:'Segoe UI',Arial,sans-serif; --serif:'Georgia','Times New Roman',serif; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; background:var(--cream); color:var(--ink); font-family:var(--sans); }
+button,input,select { font:inherit; }
+button { color:inherit; }
+::selection { background:#d1ddce; }
