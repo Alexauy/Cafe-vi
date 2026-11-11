@@ -3,6 +3,7 @@ node_modules/
 out/
 build/
 coverage/
+# Local env files may contain Supabase credentials. Keep only the blank template tracked.
 .env*
 !.env.example
 npm-debug.log*

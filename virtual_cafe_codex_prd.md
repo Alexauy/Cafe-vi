@@ -341,3 +341,91 @@ The MVP is ready to demo when:
 - The complete user journey works across separate browser sessions without manual state resets.
 
 The most important design and engineering trade-off is now clear: **the application needs to feel visually simple while handling a genuinely shared, synchronized environment underneath.** Keeping the artwork modular and the session logic authoritative will make it possible to deliver a compelling demo without sacrificing reliability.
+
+## 9. Additional product requirements (Revision 5 additions)
+
+These additions extend the existing product requirements without removing the shared room, authoritative work sessions, profile, or other MVP features. They refine how task details are presented and how session durations are entered, and add a Pacific Time clock, a personal activity calendar, and a daily diary.
+
+### Task visibility and personal countdown
+
+The existing task cards and shared session state remain. Their visibility is refined as follows:
+
+- **FR-03.13:** Other occupants' task name, remaining-time label, and session status are hidden by default. Reveal the information when the viewer hovers over that occupant's avatar or task area.
+- **FR-03.14:** The hover interaction must also work by keyboard focus and expose an equivalent accessible label for assistive technology.
+- **FR-03.15:** In the current user's own view, their active task is always displayed in a tab above their avatar without requiring hover. This personal visibility does not make the label continuously visible to other occupants; other users continue to reveal it on hover or keyboard focus.
+- **FR-03.16:** The current user's remaining time visibly counts down while they use the web app. As with all timers, calculate it from the authoritative session end timestamp; a browser interval may refresh the display but must not become the source of truth.
+- **FR-03.17:** Reaching zero, ending early, or completing a session updates the personal tab consistently with the shared session state and existing completion behavior.
+
+**Acceptance criteria**
+
+- A room occupant cannot read another occupant's task or remaining-time label until hovering over or keyboard-focusing that occupant.
+- The signed-in user can always see their own active task tab above their avatar in their view.
+- The user's displayed remaining time decreases during the session, agrees with the authoritative end timestamp, and does not reset on refresh or reconnect.
+- Hover-only information has a usable keyboard-focus equivalent.
+
+### User-entered task duration
+
+The existing duration validation and authoritative timer requirements remain. In addition to any duration shortcuts the interface may offer, users must be able to enter a duration themselves; preset choices must not be the only way to start a task.
+
+- **FR-03.18:** Provide a direct duration input that accepts a positive duration of up to and including 24 hours. The interface must communicate its accepted units and precision.
+- **FR-03.19:** Validate the entered value in the client for clear feedback and validate it again in the protected backend operation before creating a session.
+- **FR-03.20:** Reject empty, zero, negative, malformed, or greater-than-24-hour durations without creating or changing a work session.
+- **FR-03.21:** Store the resulting start and end timestamps using the existing authoritative session model. Custom durations do not change the no-pause, explicit-restart, completion, or seat-lifecycle rules.
+
+**Acceptance criteria**
+
+- A user can enter a custom duration without selecting from preset tabs.
+- Values up to exactly 24 hours are accepted; values above 24 hours and non-positive or malformed values are rejected with a clear message.
+- Invalid duration submissions do not create a session or modify the user's seat.
+- A custom-duration session remains synchronized across clients and survives refresh or reconnect without restarting.
+
+### Pacific Time clock
+
+- **FR-UI-01:** Display an analog clock face in the upper-right room controls alongside the seat availability, open-seat key, and profile control.
+- **FR-UI-02:** The clock has moving hour and minute hands that track the current time. A second hand may be included if it remains visually calm and readable.
+- **FR-UI-03:** Calculate and label the time using the `America/Los_Angeles` time zone. This follows Pacific local time and automatically observes daylight-saving transitions (PST/PDT) while retaining the requested Pacific Time behavior.
+- **FR-UI-04:** Keep the clock decorative treatment consistent with the cafe art direction while providing an accessible text equivalent for the current time.
+
+**Acceptance criteria**
+
+- The clock is visible in the upper-right controls at supported desktop and mobile widths.
+- Its hands advance to match current Pacific local time without requiring a page reload.
+- The accessible text equivalent announces a meaningful current time and time-zone label.
+
+### Personal activity calendar and daily diary
+
+- **FR-06.1:** Clicking the signed-in user's profile control in the upper-right corner opens the user's profile and monthly activity calendar.
+- **FR-06.2:** The calendar displays activity by day. Darker day cells represent more time spent in successfully completed work goals during that date; days with no completed-goal time use the baseline appearance.
+- **FR-06.3:** Calculate day totals from completed work sessions and use the same `America/Los_Angeles` calendar-day boundary as the app's Pacific Time clock. Cancelled or still-active sessions do not count as completed activity.
+- **FR-06.4:** The user can select a calendar day to view the diary entry for that date.
+- **FR-06.5:** Give each user the opportunity to write one text diary entry per calendar day. The user can return to and edit their own entry; entries are retained so they can be viewed by selecting their date later.
+- **FR-06.6:** Persist diary entries and activity summaries or their source data so the calendar and entries are available across the user's authenticated devices and visits.
+- **FR-06.7:** Diary entries are private to their author. Enforce ownership in backend access policies; do not expose diary text to other room occupants through Realtime or public room queries.
+- **FR-06.8:** Provide clear empty-day, no-activity, loading, and save/error states. Do not imply that an entry was saved when persistence failed.
+
+**Acceptance criteria**
+
+- Clicking the profile control opens a monthly calendar for the signed-in user.
+- Within a displayed month, days with more completed-goal time appear darker than days with less time, and days without completed-goal time have the baseline appearance.
+- Selecting a date displays that date's saved diary entry, or an empty-entry state if none exists.
+- A user can create and edit their own daily entry; it remains available after refresh and on another authenticated device.
+- A user cannot read or alter another user's diary entry, including through direct database requests.
+- Calendar activity uses completed goals and Pacific local dates consistently, including across daylight-saving transitions.
+
+### Additional data and implementation considerations
+
+| Entity | Additional requirement |
+|---|---|
+| WorkSession | Continue storing authoritative start/end timestamps and status. Aggregate completed-session duration by user and Pacific local calendar date for calendar intensity. |
+| DiaryEntry | Persist the author, Pacific local calendar date, text content, and created/updated timestamps. Enforce one entry per user per date and restrict reads/writes to the owner with Row Level Security. |
+| Room controls | Add a live analog Pacific Time clock without displacing the seat count, open-seat key, or profile control. |
+
+The client may render task countdowns and clock hands with lightweight timers, but the database remains authoritative for session ends and stored activity. Calendar aggregation and diary authorization must be enforced by Supabase PostgreSQL policies or protected server-side operations. Any schema, policy, or environment setup changes needed for these additions must be documented alongside the existing Supabase setup instructions.
+
+### Additional validation and release coverage
+
+- Verify other occupants' task details remain hidden until hover or keyboard focus, while the current user always sees their own active task tab.
+- Verify custom durations at zero, a positive duration, exactly 24 hours, and greater than 24 hours, including backend rejection of invalid submissions.
+- Verify the analog clock follows Pacific local time and updates as its hands advance.
+- Verify completed-goal activity is grouped by Pacific calendar date and darker cells correspond to more completed-goal time.
+- Verify diary create, edit, view-by-day, cross-device persistence, and owner-only access, including direct unauthorized database access attempts.

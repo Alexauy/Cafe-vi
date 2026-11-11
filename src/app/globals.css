@@ -1,7 +1,12 @@
-:root { --ink:#24362d; --muted:#78847b; --cream:#f5f1e8; --paper:#fffdf8; --green:#526e57; --sage:#dce4d6; --line:#deddd1; --rust:#bd7658; --mono:'Cascadia Mono','Courier New',monospace; --sans:'Segoe UI',Arial,sans-serif; --serif:'Georgia','Times New Roman',serif; }
+:root { --ink:#2f3828; --muted:#77725e; --cream:#eee3cb; --paper:#fff8e8; --green:#52653b; --sage:#d7d7b6; --line:#c4a57b; --rust:#a94535; --mono:'Cascadia Mono','Courier New',monospace; --sans:'Segoe UI',Arial,sans-serif; --serif:'Georgia','Times New Roman',serif; }
+:root { --cafe-sign-width:min(440px,35vw); --cafe-sign-left:-4.35%; --cafe-sign-top:60px; --cafe-sign-offset:-16px; --cafe-topbar-height:76px; }
+@media(max-width:760px) { :root { --cafe-sign-width:min(380px,55vw); --cafe-sign-left:-5.56%; --cafe-sign-top:52px; --cafe-sign-offset:-20px; --cafe-topbar-height:72px; } }
+@media(max-width:480px) { :root { --cafe-sign-width:min(310px,70vw); --cafe-sign-top:50px; --cafe-sign-offset:-14px; --cafe-topbar-height:64px; } }
 * { box-sizing:border-box; }
 html { scroll-behavior:smooth; }
-body { margin:0; background:var(--cream); color:var(--ink); font-family:var(--sans); }
+body { position:relative; isolation:isolate; margin:0; background-color:#eee3cb; color:var(--ink); font-family:var(--sans); }
+body::before { content:""; position:fixed; z-index:-1; inset:0; pointer-events:none; background-image:linear-gradient(rgb(255 248 232 / 46%),rgb(255 248 232 / 46%)),url('/backgrounds/cookieWallpaper.png'); background-repeat:repeat,repeat; background-size:auto,80px 80px; filter:saturate(1.25); }
+.cafe-banner::before { content:""; position:absolute; z-index:-1; inset:0 auto 0 50%; width:100vw; transform:translateX(-50%); background-color:#a8754e; background-image:radial-gradient(circle,#925b38 1.8px,transparent 2.1px); background-size:20px 20px; border-bottom:1px solid #805537; }
 button,input,select { font:inherit; }
 button { color:inherit; }
 ::selection { background:#d1ddce; }

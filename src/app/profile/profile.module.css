@@ -1,0 +1,118 @@
+.page { width:min(100%,1680px); min-height:100svh; margin:0 auto; padding:0 4% 48px; }
+.header { position:relative; z-index:6; isolation:isolate; display:flex; align-items:center; justify-content:flex-end; height:var(--cafe-topbar-height); }
+.brand { position:absolute; z-index:1; top:var(--cafe-sign-top); left:var(--cafe-sign-left); display:block; width:var(--cafe-sign-width); height:auto; object-fit:contain; }
+.backLink { display:flex; align-items:center; gap:10px; padding:7px 12px 7px 7px; border:1px solid #c4a57b; border-radius:999px; background:#f7edda; color:var(--green); font:10px var(--mono); letter-spacing:.05em; text-decoration:none; transition:transform .16s ease,background .16s ease; }
+.backLink span { display:grid; place-items:center; width:34px; height:34px; border:1px solid #ccd3c8; border-radius:50%; background:#e2e8de; font:20px/1 var(--sans); }
+.backLink:hover { transform:translateY(-2px) rotate(-1deg); background:#fff8e8; }
+.blank { min-height:calc(100svh - 105px); }
+.loadingStatus { width:fit-content; margin:clamp(130px,12vh,150px) auto; color:#67452d; font-size:16px; font-weight:600; line-height:1.55; }
+.card { position:relative; width:min(100%,500px); margin:clamp(130px,12vh,150px) auto; padding:clamp(27px,5vw,44px); border:1px solid #b98b5b; border-radius:16px 26px 17px 23px; background:var(--paper); box-shadow:7px 8px 0 #67452d,0 18px 48px #67452d20; }
+.card::before { content:"✳"; position:absolute; top:-23px; right:27px; color:#a94535; font:32px/1 var(--serif); transform:rotate(12deg); }
+.card h1 { margin:0 0 12px; color:#334334; font:500 clamp(32px,6vw,44px)/1.03 var(--serif); letter-spacing:-.045em; }
+.card p { color:#737b70; font-size:13px; line-height:1.65; }
+.eyebrow { display:inline-block; margin:0 0 14px; padding:7px 10px; border:1px solid #26372d; border-radius:4px 12px 5px 11px; background:#f2ca68; color:#594c48 !important; font:9px var(--mono); letter-spacing:.12em; transform:rotate(-1deg); }
+.card form { display:grid; gap:17px; margin-top:24px; }
+.card label { display:grid; gap:8px; color:#687568; font:10px var(--mono); letter-spacing:.04em; }
+.card input { width:100%; height:48px; padding:0 13px; border:1px solid #d7c8aa; border-radius:7px 11px 7px 10px; outline:none; background:#fffefa; color:var(--ink); font:15px var(--sans); transition:border-color .16s ease,box-shadow .16s ease; }
+.card input:focus { border-color:#80967f; box-shadow:0 0 0 3px #80967f28; }
+.card fieldset { margin:0; padding:0; border:0; }
+.card legend { margin-bottom:10px; color:#687568; font:10px var(--mono); letter-spacing:.04em; }
+.avatars { display:flex; flex-wrap:wrap; gap:10px; }
+.avatar { width:52px; height:52px; padding:0; overflow:hidden; border:2px solid #d2d4c8; border-radius:50%; background:#e9d7bd; cursor:pointer; transition:transform .16s ease,border-color .16s ease,box-shadow .16s ease; }
+.avatar img { width:100%; height:100%; object-fit:cover; }
+.avatar:hover { transform:translateY(-3px) rotate(-4deg); border-color:#a94535; }
+.selected { border-color:#a94535; box-shadow:0 0 0 3px #f2ca68; }
+.save,.actionLink { display:inline-flex; justify-content:center; align-items:center; min-height:48px; padding:0 18px; border:1px solid #354635; border-radius:7px 12px 7px 10px; background:var(--green); color:#fffdf8; font:10px var(--mono); letter-spacing:.11em; text-decoration:none; cursor:pointer; box-shadow:0 3px 0 #354635; transition:transform .15s ease,box-shadow .15s ease,background .15s ease; }
+.save:hover:not(:disabled),.actionLink:hover { transform:translateY(-2px); box-shadow:0 5px 0 #354635; background:#607649; }
+.save:disabled { opacity:.55; cursor:not-allowed; }
+.signOut { display:block; margin:21px auto 0; padding:5px; border:0; background:none; color:#52653b; font-size:12px; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }
+.signOut:disabled { opacity:.5; cursor:not-allowed; }
+.status { margin:0; padding:11px 13px; border:1px solid #e2d2a7; border-radius:8px 12px 8px 11px; background:#f7efd9; color:#70583d !important; font-size:12px !important; line-height:1.55 !important; }
+.backLink:focus-visible,.avatar:focus-visible,.save:focus-visible,.actionLink:focus-visible,.signOut:focus-visible { outline:3px solid #a94535; outline-offset:3px; }
+.dashboardCard { width:min(100%,1120px); }
+.profileDashboard { display:grid; grid-template-columns:minmax(230px,.78fr) minmax(0,1.5fr); gap:clamp(24px,4vw,48px); align-items:start; }
+.accountPanel { min-width:0; padding-right:clamp(18px,3vw,34px); border-right:1px solid #d9c8a7; }
+.accountPanel form { display:grid; gap:17px; margin-top:22px; }
+.activityPanel { min-width:0; }
+.activityHeading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.activityPanel h2 { margin:0; color:#334334; font:500 clamp(23px,3vw,31px)/1.08 var(--serif); letter-spacing:-.035em; }
+.activityEyebrow { margin:0 0 7px !important; color:#a16c4d !important; font:9px var(--mono) !important; letter-spacing:.13em; }
+.activityIntro { margin:7px 0 0; font-size:12px !important; }
+.diaryBook { position:relative; flex:none; display:flex; align-items:center; gap:10px; min-height:64px; max-width:220px; padding:10px 13px 10px 20px; overflow:hidden; border:1px solid #4d3122; border-radius:4px 12px 12px 4px; background:linear-gradient(90deg,#41291d 0 12px,#815035 12px,#9b6240 100%); color:#fff2d0; text-align:left; cursor:pointer; box-shadow:3px 4px 0 #4d3826; transition:transform .16s ease,box-shadow .16s ease,filter .16s ease; }
+.diaryBook::after { content:""; position:absolute; inset:7px 7px 7px auto; width:3px; border-left:1px solid #e2bd7a; border-right:1px solid #e2bd7a; opacity:.75; }
+.diaryBook:hover,.diaryBook:focus-visible { z-index:1; transform:translateY(-2px) scale(1.035); filter:brightness(1.12); box-shadow:5px 7px 0 #4d3826,0 0 0 3px #f2ca68; }
+.bookSpine { position:absolute; inset:0 auto 0 10px; width:2px; background:#c49559; box-shadow:2px 0 #593b29; }
+.bookCopy { display:grid; gap:5px; padding-right:7px; }
+.bookCopy b { font:9px var(--mono); letter-spacing:.1em; white-space:nowrap; }
+.bookCopy small { color:#f0d9aa; font:10px/1.3 var(--sans); }
+.bookStamp { align-self:flex-start; color:#f2ca68; font:16px/1 var(--serif); }
+.calendarToolbar { display:flex; justify-content:space-between; align-items:center; margin:22px 0 10px; padding:9px 11px; border:1px solid #d6c5a4; border-radius:8px 12px 7px 10px; background:#f6edd8; }
+.calendarToolbar h3 { margin:0; color:#405040; font:500 16px var(--serif); }
+.monthArrow { display:grid; place-items:center; width:31px; height:31px; border:1px solid #c4a57b; border-radius:50%; background:#fff8e8; color:#52653b; font:17px/1 var(--sans); cursor:pointer; }
+.monthArrow:hover:not(:disabled) { background:#f2ca68; }
+.monthArrow:disabled { opacity:.35; cursor:not-allowed; }
+.calendarGrid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:5px; }
+.weekday { display:grid; place-items:center; min-height:23px; color:#82745d; font:8px var(--mono); letter-spacing:.08em; }
+.blankDay { min-height:67px; }
+.dayCell { position:relative; display:flex; flex-direction:column; align-items:flex-start; min-width:0; min-height:67px; padding:6px 5px 5px; border:1px solid #dfd2b8; border-radius:6px 9px 6px 8px; color:#3f4b3d; text-align:left; cursor:pointer; transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease; }
+.dayCell:hover:not(:disabled) { z-index:1; transform:translateY(-2px); border-color:#a94535; box-shadow:0 3px 0 #a9453533; }
+.dayCell:disabled { opacity:.45; cursor:default; }
+.activityLevel0 { background:#fbf7eb; }
+.activityLevel1 { background:#f1edcf; }
+.activityLevel2 { background:#dfe5bc; }
+.activityLevel3 { background:#bdcc9c; }
+.activityLevel4 { background:#91a478; }
+.selectedDay { outline:2px solid #a94535; outline-offset:1px; }
+.dayNumber { font:700 11px var(--serif); }
+.dayTime { margin-top:6px; overflow:hidden; max-width:100%; color:#465640; font:8px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+.noteFlag { position:absolute; top:5px; right:5px; padding:2px 3px; border-radius:3px; background:#f2ca68; color:#594c30; font:6px var(--mono); letter-spacing:.02em; }
+.activityLegend { display:flex; justify-content:space-between; gap:12px; margin:10px 1px 12px; color:#817862; font:8px/1.4 var(--mono); }
+.activityLegend>span:first-child { display:flex; align-items:center; gap:6px; }
+.legendSwatch { width:12px; height:12px; border:1px solid #89966c; border-radius:3px; background:#91a478; }
+.selectedDaySummary { display:flex; align-items:center; justify-content:space-between; gap:14px; width:100%; padding:11px 13px; border:1px solid #d6c5a4; border-radius:8px 12px 7px 10px; background:#fff8e8; color:#405040; text-align:left; cursor:pointer; }
+.selectedDaySummary:hover { border-color:#a94535; background:#fff5d8; }
+.selectedDaySummary:disabled { opacity:.62; cursor:default; }
+.selectedDaySummary>span { display:grid; gap:4px; min-width:0; }
+.selectedDaySummary b { overflow:hidden; font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+.selectedDaySummary small { color:#817862; font:10px var(--sans); }
+.selectedDaySummary strong { flex:none; color:#52653b; font:700 17px var(--serif); }
+.bookBackdrop { position:fixed; z-index:30; inset:0; display:grid; place-items:center; padding:18px; background:#25342dba; }
+.bookDialog { position:relative; width:min(100%,720px); max-height:min(90svh,820px); overflow:auto; padding:clamp(26px,5vw,44px); border:2px solid #573b28; border-radius:8px 18px 10px 15px; background:#f8f0dd; box-shadow:0 20px 70px #17221966,5px 6px 0 #38291e; }
+.bookDialog h2 { margin:0; color:#334334; font:500 clamp(25px,5vw,36px)/1.08 var(--serif); letter-spacing:-.035em; }
+.bookPrompt { margin:9px 0 19px; color:#737b70; font-size:13px; }
+.closeBook { position:absolute; top:14px; right:14px; display:grid; place-items:center; width:34px; height:34px; padding:0; border:1px solid #c4a57b; border-radius:50%; background:#fff8e8; color:#67452d; font:22px/1 var(--sans); cursor:pointer; }
+.bookDialog textarea { display:block; width:100%; min-height:240px; max-height:45svh; resize:vertical; padding:9px 14px; border:1px solid #d6c5a4; border-radius:5px 9px 6px 8px; outline:none; background-color:#fffaf0; background-image:linear-gradient(transparent 31px,#e3d8c3 32px); background-size:100% 32px; color:#3c463b; font:14px/32px var(--serif); }
+.bookDialog textarea:focus { border-color:#80967f; box-shadow:0 0 0 3px #80967f28; }
+.bookDialog textarea:read-only { color:#716b5b; background-color:#f2eddf; cursor:default; }
+.diaryActions { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:14px; color:#817862; font:9px var(--mono); }
+.diaryActions .save { margin-left:auto; }
+.srOnly { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.monthArrow:focus-visible,.dayCell:focus-visible,.diaryBook:focus-visible,.selectedDaySummary:focus-visible,.closeBook:focus-visible { outline:3px solid #a94535; outline-offset:3px; }
+@media(max-width:760px) {
+  .page { padding-right:5%; padding-left:5%; }
+  .header { align-items:flex-start; padding-top:0; }
+}
+@media(max-width:520px) {
+  .backLink { gap:7px; padding:5px 9px 5px 5px; font-size:9px; }
+  .backLink span { width:30px; height:30px; }
+  .card { margin-top:clamp(90px,10vh,110px); padding:27px 22px; }
+  .avatar { width:48px; height:48px; }
+}
+@media(prefers-reduced-motion:reduce) { .backLink,.card input,.avatar,.save,.actionLink { transition:none; } }
+@media(max-width:760px) {
+  .profileDashboard { grid-template-columns:minmax(0,1fr); gap:25px; }
+  .accountPanel { padding-right:0; padding-bottom:23px; border-right:0; border-bottom:1px solid #d9c8a7; }
+}
+@media(max-width:520px) {
+  .activityHeading { flex-direction:column; }
+  .diaryBook { width:100%; max-width:none; }
+  .blankDay,.dayCell { min-height:58px; }
+  .calendarGrid { gap:3px; }
+  .weekday { font-size:7px; }
+  .dayCell { padding:5px 3px; }
+  .dayTime { font-size:7px; }
+  .noteFlag { top:3px; right:3px; font-size:5px; }
+  .activityLegend { font-size:7px; }
+  .bookDialog textarea { min-height:200px; }
+}
+@media(prefers-reduced-motion:reduce) { .diaryBook,.dayCell { transition:none; } }
