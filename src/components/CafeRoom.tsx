@@ -3,11 +3,17 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import type { AuthChangeEvent } from "@supabase/supabase-js";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { avatarOptions } from "@/lib/avatar-options";
 import { userFacingError } from "@/lib/user-facing-error";
 import styles from "./CafeRoom.module.css";
+
+declare global {
+  interface Window {
+    cafeWelcomeNoticeShown?: boolean;
+  }
+}
 
 const roomTables = [
   { id: "round-back-left", type: "Round", position: "BackLeft", seatIds: [1, 2] },
@@ -30,7 +36,6 @@ type Occupant = {
 };
 
 type ProfileRow = { id: string; username: string; avatar_id: string };
-type WelcomeProfileRow = Pick<ProfileRow, "username" | "avatar_id"> & { welcome_seen: boolean };
 type SeatRow = { seat_no: number; state: string; occupant_id: string | null };
 type SessionRow = { seat_no: number; task_name: string; ends_at: string; status: "active" | "completed" | "cancelled"; finished_at: string | null };
 type ChatMessage = { id: string; room_id: string; user_id: string; content: string; created_at: string; username: string };
@@ -47,6 +52,8 @@ const ambienceOptions = [
 ] as const;
 type ReactionId = (typeof reactionOptions)[number]["id"];
 type RoomReaction = { id: string; seat: number; emoji: ReactionId; createdAt: number };
+type RoomTreat = { id: string; kind: "coffee" | "cookie" };
+const roomTreatStorageKey = "cafe-room-treat";
 
 function isRoomReaction(value: unknown): value is Pick<RoomReaction, "id" | "seat" | "emoji"> {
   if (typeof value !== "object" || value === null) return false;
@@ -109,6 +116,30 @@ function formatRemaining(occupant: Occupant, now: number) {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function CoffeeCupIcon() {
+  return (
+    <svg viewBox="0 0 64 72" aria-hidden="true">
+      <path d="M17 25h30l-3 36H20z" fill="#f2dfbb" stroke="#67452d" strokeWidth="3" strokeLinejoin="round" />
+      <path d="M47 31h5a8 8 0 0 1 0 16h-7" fill="none" stroke="#67452d" strokeWidth="3" />
+      <path d="M23 18c-4-5 4-6 0-11m12 11c-4-5 4-6 0-11m12 11c-4-5 4-6 0-11" fill="none" stroke="#a8754e" strokeWidth="3" strokeLinecap="round" />
+      <path d="M21 34h23" stroke="#a8754e" strokeWidth="4" strokeLinecap="round" />
+      <path d="M23 55h19" stroke="#c18b5f" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CookieIcon() {
+  return (
+    <svg viewBox="0 0 64 72" aria-hidden="true">
+      <path d="M32 11c4 0 6 4 10 3s7 1 8 5 5 5 4 10 2 7-1 11 0 8-4 10-5 5-10 3-7 2-11-1-8 0-10-4-5-5-3-10-2-7 1-11 0-9 5-11 4-5 11-5Z" fill="#d5a15f" stroke="#67452d" strokeWidth="3" strokeLinejoin="round" />
+      <circle cx="25" cy="27" r="3" fill="#67452d" />
+      <circle cx="40" cy="24" r="3" fill="#67452d" />
+      <circle cx="34" cy="42" r="3" fill="#67452d" />
+      <circle cx="22" cy="46" r="2.5" fill="#67452d" />
+    </svg>
+  );
+}
+
 export default function CafeRoom() {
   const [occupants, setOccupants] = useState<Record<number, Occupant>>(() => backendConfigured ? {} : demoOccupants);
   const [selected, setSelected] = useState<number | null>(null);
@@ -124,8 +155,8 @@ export default function CafeRoom() {
   const [busy, setBusy] = useState(false);
   const [roomMessage, setRoomMessage] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [welcomeNoticeOpen, setWelcomeNoticeOpen] = useState(false);
-  const [welcomeNoticeBusy, setWelcomeNoticeBusy] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -135,7 +166,10 @@ export default function CafeRoom() {
   const [isModerator, setIsModerator] = useState(false);
   const [deletingChatMessageId, setDeletingChatMessageId] = useState<string | null>(null);
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatOpenRef = useRef(false);
+  const currentUserIdRef = useRef<string | null>(null);
   const [reactions, setReactions] = useState<RoomReaction[]>([]);
+  const [roomTreat, setRoomTreat] = useState<RoomTreat | null>(null);
   const [localSeat, setLocalSeat] = useState<number | null>(null);
   const [showInitialTaskCards, setShowInitialTaskCards] = useState(!backendConfigured);
   const [revealedTaskSeat, setRevealedTaskSeat] = useState<number | null>(null);
@@ -153,32 +187,19 @@ export default function CafeRoom() {
   const [now, setNow] = useState(Date.now());
   const occupied = Object.keys(occupants).length;
   const availableSeats = 20 - occupied;
+  const displayedRoomMessage = roomMessage || (backendConfigured && backendReady && !userId
+    ? "Sign in or make an account to claim a seat!"
+    : "");
 
-  const dismissWelcomeNotice = useCallback(async () => {
-    if (welcomeNoticeBusy) return;
-    setWelcomeNoticeBusy(true);
-    try {
-      if (userId) {
-        const { error } = await createClient().from("profiles")
-          .update({ welcome_seen: true })
-          .eq("id", userId);
-        if (error) {
-          setRoomMessage(userFacingError(error, "We couldn't save that you've seen the welcome guide. Please try again."));
-          return;
-        }
-      }
-      setWelcomeNoticeOpen(false);
-    } catch (error) {
-      setRoomMessage(userFacingError(error, "We couldn't save that you've seen the welcome guide. Please try again."));
-    } finally {
-      setWelcomeNoticeBusy(false);
-    }
-  }, [userId, welcomeNoticeBusy]);
+  const dismissWelcomeNotice = useCallback(() => {
+    setWelcomeNoticeOpen(false);
+  }, []);
 
   useEffect(() => {
-    if (!backendReady || userId) return;
+    if (window.cafeWelcomeNoticeShown) return;
+    window.cafeWelcomeNoticeShown = true;
     setWelcomeNoticeOpen(true);
-  }, [backendReady, userId]);
+  }, []);
 
   useEffect(() => {
     if (!welcomeNoticeOpen) return;
@@ -188,6 +209,27 @@ export default function CafeRoom() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [welcomeNoticeOpen, dismissWelcomeNotice]);
+
+  useEffect(() => {
+    try {
+      const savedTreat = window.sessionStorage.getItem(roomTreatStorageKey);
+      if (savedTreat === "coffee" || savedTreat === "cookie") {
+        setRoomTreat({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind: savedTreat });
+      }
+    } catch (error) {
+      console.error("The room treat could not be restored for this tab:", error);
+    }
+
+    const clearRoomTreat = () => {
+      try {
+        window.sessionStorage.removeItem(roomTreatStorageKey);
+      } catch (error) {
+        console.error("The room treat could not be cleared when leaving the app:", error);
+      }
+    };
+    window.addEventListener("pagehide", clearRoomTreat);
+    return () => window.removeEventListener("pagehide", clearRoomTreat);
+  }, []);
 
   useEffect(() => {
     const ticker = window.setInterval(() => setNow(Date.now()), 1000);
@@ -225,6 +267,10 @@ export default function CafeRoom() {
     void loadChatHistory();
     return () => { active = false; };
   }, [chatOpen, roomId, userId]);
+
+  useEffect(() => {
+    chatOpenRef.current = chatOpen;
+  }, [chatOpen]);
 
   useEffect(() => {
     if (chatOpen) chatMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -318,13 +364,21 @@ export default function CafeRoom() {
     let roomChannel: ReturnType<typeof supabase.channel> | null = null;
     let authSubscription: { unsubscribe: () => void } | null = null;
     let heartbeatTimer: number | null = null;
+    let guestRefreshTimer: number | null = null;
     let pageHideHandler: (() => void) | null = null;
     let visibilityChangeHandler: (() => void) | null = null;
     let onlineHandler: (() => void) | null = null;
+    let currentRoomId: string | null = null;
     let authenticated = false;
+    let exitAccessToken: string | null = null;
     let heartbeatWarningShown = false;
     let heartbeatInFlight = false;
     const heartbeatWarning = "We're having trouble keeping your seat active. Check your connection and try again.";
+
+    function startGuestRefresh(roomId: string) {
+      if (guestRefreshTimer !== null) window.clearInterval(guestRefreshTimer);
+      guestRefreshTimer = window.setInterval(() => { void refreshRoom(roomId); }, 10_000);
+    }
 
     async function sendHeartbeat() {
       if (!active || !authenticated || heartbeatInFlight) return;
@@ -348,6 +402,24 @@ export default function CafeRoom() {
     }
 
     async function refreshRoom(roomId: string) {
+      if (!authenticated) {
+        const { data, error } = await supabase.rpc("get_public_cafe_occupants");
+        if (!active) return;
+        if (error) {
+          setRoomMessage(userFacingError(error, "We couldn't load the café right now. Please try again."));
+          return;
+        }
+        const publicRows = (data ?? []) as unknown as Array<Pick<ProfileRow, "username" | "avatar_id"> & { seat_no: number }>;
+        const publicOccupants: Record<number, Occupant> = {};
+        for (const occupant of publicRows) {
+          const avatar = avatarOptions.find((option) => option.id === occupant.avatar_id) ?? avatarOptions[1];
+          publicOccupants[occupant.seat_no] = { name: occupant.username, avatar: avatar.src };
+        }
+        setOccupants(publicOccupants);
+        setRoomMessage("");
+        return;
+      }
+
       const [seatResult, profileResult, sessionResult] = await Promise.all([
         supabase.from("seats").select("seat_no,state,occupant_id").eq("room_id", roomId),
         supabase.from("profiles").select("id,username,avatar_id"),
@@ -406,6 +478,7 @@ export default function CafeRoom() {
       }
       if (userData.user) {
         authenticated = true;
+        currentUserIdRef.current = userData.user.id;
         setUserId(userData.user.id);
         const { data: moderator, error: moderatorError } = await supabase.from("chat_moderators")
           .select("user_id")
@@ -420,17 +493,24 @@ export default function CafeRoom() {
 
         const { data: profileData, error: profileError } = await supabase
           .from("profiles")
-          .select("username,avatar_id,welcome_seen")
+          .select("username,avatar_id")
           .eq("id", userData.user.id)
           .single();
-        const profile = profileData as unknown as WelcomeProfileRow | null;
+        const profile = profileData as unknown as Pick<ProfileRow, "username" | "avatar_id"> | null;
         if (profileError) setRoomMessage(userFacingError(profileError, "We couldn't load your profile. Please try again."));
         if (profile) {
-          if (!profile.welcome_seen) setWelcomeNoticeOpen(true);
           setName(profile.username);
           const avatar = avatarOptions.find((option) => option.id === profile.avatar_id);
           if (avatar) setSelectedAvatar(avatar.src);
         }
+      }
+
+      if (!userData.user) {
+        await refreshRoom("");
+        if (!active) return;
+        startGuestRefresh("");
+        setBackendReady(true);
+        return;
       }
 
       const { data: room, error: roomError } = await supabase.from("rooms").select("id").eq("slug", "cafe-vi").single();
@@ -441,9 +521,13 @@ export default function CafeRoom() {
         return;
       }
 
+      currentRoomId = room.id;
       setRoomId(room.id);
       await refreshRoom(room.id);
       if (!active) return;
+      if (!authenticated) {
+        startGuestRefresh(room.id);
+      }
       roomChannel = supabase.channel(`cafe-room:${room.id}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "seats", filter: `room_id=eq.${room.id}` }, () => { void refreshRoom(room.id); })
         .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { void refreshRoom(room.id); })
@@ -467,6 +551,9 @@ export default function CafeRoom() {
             return;
           }
           setChatMessages((current) => mergeChatMessages(current, [message]));
+          if (!chatOpenRef.current && message.user_id !== currentUserIdRef.current) {
+            setUnreadChatCount((current) => current + 1);
+          }
         })
         .on("postgres_changes", { event: "DELETE", schema: "public", table: "chat_messages" }, (event: { old: unknown }) => {
           if (!isChatMessageId(event.old)) return;
@@ -494,20 +581,78 @@ export default function CafeRoom() {
         document.addEventListener("visibilitychange", visibilityChangeHandler);
         onlineHandler = () => { void sendHeartbeat(); };
         window.addEventListener("online", onlineHandler);
-        pageHideHandler = () => { void supabase.rpc("mark_cafe_disconnected"); };
+        pageHideHandler = () => {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+          if (!exitAccessToken || !supabaseUrl || !supabaseKey) {
+            console.error("The current sign-in session could not be ended on page exit because auth configuration was unavailable.");
+            return;
+          }
+          const supabaseApiUrl = supabaseUrl.replace(/\/+$/, "");
+          const headers = {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${exitAccessToken}`,
+          };
+          const releaseSeat = () => fetch(`${supabaseApiUrl}/rest/v1/rpc/leave_cafe`, {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: "{}",
+            keepalive: true,
+          }).then(async (response) => {
+            if (response.ok) return;
+            console.error("The café seat could not be released on page exit:", response.status);
+            const fallbackResponse = await fetch(`${supabaseApiUrl}/rest/v1/rpc/mark_cafe_disconnected`, {
+              method: "POST",
+              headers: { ...headers, "Content-Type": "application/json" },
+              body: "{}",
+              keepalive: true,
+            });
+            if (!fallbackResponse.ok) {
+              console.error("The café seat could not be marked disconnected on page exit:", fallbackResponse.status);
+            }
+          }).catch(async (error: unknown) => {
+            console.error("The café seat could not be released on page exit:", error);
+            try {
+              const fallbackResponse = await fetch(`${supabaseApiUrl}/rest/v1/rpc/mark_cafe_disconnected`, {
+                method: "POST",
+                headers: { ...headers, "Content-Type": "application/json" },
+                body: "{}",
+                keepalive: true,
+              });
+              if (!fallbackResponse.ok) {
+                console.error("The café seat could not be marked disconnected on page exit:", fallbackResponse.status);
+              }
+            } catch (fallbackError) {
+              console.error("The café seat could not be marked disconnected on page exit:", fallbackError);
+            }
+          });
+          void releaseSeat().then(() => fetch(`${supabaseApiUrl}/auth/v1/logout?scope=local`, {
+            method: "POST",
+            headers,
+            keepalive: true,
+          })).then((response) => {
+            if (!response.ok) console.error("The current sign-in session could not be ended on page exit:", response.status);
+          }).catch((error: unknown) => {
+            console.error("The current sign-in session could not be ended on page exit:", error);
+          });
+        };
         window.addEventListener("pagehide", pageHideHandler);
       }
       setBackendReady(true);
     }
 
-    const { data } = supabase.auth.onAuthStateChange((event: AuthChangeEvent) => {
+    const { data } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+      exitAccessToken = session?.access_token ?? null;
       if (event === "SIGNED_OUT" && active) {
         authenticated = false;
+        currentUserIdRef.current = null;
         if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
         heartbeatTimer = null;
         setUserId(null);
         setIsModerator(false);
         setRoomMessage("");
+        void refreshRoom(currentRoomId ?? "");
+        startGuestRefresh(currentRoomId ?? "");
       }
     });
     authSubscription = data.subscription;
@@ -517,6 +662,7 @@ export default function CafeRoom() {
       active = false;
       authSubscription?.unsubscribe();
       if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
+      if (guestRefreshTimer !== null) window.clearInterval(guestRefreshTimer);
       if (visibilityChangeHandler) document.removeEventListener("visibilitychange", visibilityChangeHandler);
       if (onlineHandler) window.removeEventListener("online", onlineHandler);
       if (pageHideHandler) window.removeEventListener("pagehide", pageHideHandler);
@@ -526,11 +672,10 @@ export default function CafeRoom() {
   }, []);
 
   function toggleChatRoom() {
-    setChatOpen((open) => !open);
-  }
-
-  function closeChatRoom() {
-    setChatOpen(false);
+    const shouldOpen = !chatOpenRef.current;
+    chatOpenRef.current = shouldOpen;
+    if (shouldOpen) setUnreadChatCount(0);
+    setChatOpen(shouldOpen);
   }
 
   async function signOut() {
@@ -549,7 +694,7 @@ export default function CafeRoom() {
         setLocalSeat(null);
       }
 
-      const { error } = await createClient().auth.signOut();
+      const { error } = await createClient().auth.signOut({ scope: "local" });
       if (error) {
         setRoomMessage(userFacingError(error, "We couldn't sign you out. Please try again."));
         return;
@@ -722,20 +867,34 @@ export default function CafeRoom() {
     }
   }
 
+  function getOwnSeat() {
+    if (!backendConfigured) return localSeat;
+    const ownOccupant = Object.entries(occupants).find(([, occupant]) => occupant.userId === userId);
+    return ownOccupant ? Number(ownOccupant[0]) : null;
+  }
+
   function sendReaction(emoji: ReactionId) {
     if (reactionCooldown) return;
-    const ownSeat = backendConfigured
-      ? Object.entries(occupants).find(([, occupant]) => occupant.userId === userId)?.[0]
-      : localSeat?.toString();
-    if (!ownSeat) return;
+    const ownSeat = getOwnSeat();
+    if (ownSeat === null) return;
     setReactionCooldown(true);
     reactionCooldownTimer.current = window.setTimeout(() => {
       setReactionCooldown(false);
       reactionCooldownTimer.current = null;
     }, 1000);
-    const reaction: RoomReaction = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, seat: Number(ownSeat), emoji, createdAt: Date.now() };
+    const reaction: RoomReaction = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, seat: ownSeat, emoji, createdAt: Date.now() };
     setReactions((current) => [...current, reaction]);
     void reactionChannel.current?.send({ type: "broadcast", event: "room-reaction", payload: reaction });
+  }
+
+  function showRoomTreat(kind: RoomTreat["kind"]) {
+    if (getOwnSeat() === null) return;
+    setRoomTreat({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind });
+    try {
+      window.sessionStorage.setItem(roomTreatStorageKey, kind);
+    } catch (error) {
+      console.error("The room treat could not be saved for this tab:", error);
+    }
   }
 
   return (
@@ -748,6 +907,15 @@ export default function CafeRoom() {
               <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7v1H4z" />
             </svg>
           </Link>
+          <button
+            type="button"
+            className={styles.infoButton}
+            onClick={() => setWelcomeNoticeOpen(true)}
+            aria-label="About Cafe-Vi"
+            title="About Cafe-Vi"
+          >
+            i
+          </button>
         </div>
         <div className={styles.bannerActions}>
           <div className={styles.chatDock}>
@@ -759,6 +927,7 @@ export default function CafeRoom() {
               aria-controls="cafe-chat-panel"
             >
               Chatroom
+              {unreadChatCount > 0 && <span className={styles.chatUnreadBadge} aria-label={`${unreadChatCount} new ${unreadChatCount === 1 ? "message" : "messages"}`} aria-live="polite">{unreadChatCount > 99 ? "99+" : unreadChatCount}</span>}
             </button>
             <section className={styles.chatPanel} id="cafe-chat-panel" aria-label="Chatroom" hidden={!chatOpen}>
               <header className={styles.chatHeader}>
@@ -766,7 +935,6 @@ export default function CafeRoom() {
                   <h2>Chatroom</h2>
                   <p>A cozy little place to say hello.</p>
                 </div>
-                <button type="button" className={styles.chatClose} onClick={closeChatRoom} aria-label="Close chatroom">×</button>
               </header>
               <p className={styles.chatModerationNotice}>Chats will be moderated and deleted if inappropriate, be mindful!</p>
               <div className={styles.chatMessages} role="log" aria-live="polite" aria-relevant="additions text">
@@ -868,39 +1036,56 @@ export default function CafeRoom() {
           <path d="M 0 410 L 500 140 L 1000 410" fill="none" stroke="#67452d" strokeWidth="10" vectorEffect="non-scaling-stroke" />
           <path d="M 500 0 L 1000 250 L 1000 750 L 500 1000 L 0 750 L 0 250 Z" fill="none" stroke="#67452d" strokeWidth="10" vectorEffect="non-scaling-stroke" />
         </svg>
-        <div className={`${styles.planter} ${styles.planterLeft}`} aria-hidden="true"><Image src="/room/cafeViLight.png" alt="" fill sizes="(max-width: 480px) 72px, (max-width: 760px) 92px, 144px" /></div>
-        <div className={`${styles.planter} ${styles.planterRight}`} aria-hidden="true"><Image src="/room/cafeViLight.png" alt="" fill sizes="(max-width: 480px) 72px, (max-width: 760px) 92px, 144px" /></div>
+        <div className={`${styles.frameCluster} ${styles.frameClusterLeft}`} aria-hidden="true">
+          <span className={`${styles.emptyFrame} ${styles.frameRust}`} />
+          <span className={`${styles.emptyFrame} ${styles.frameGreen}`} />
+          <span className={`${styles.emptyFrame} ${styles.frameBrown}`} />
+        </div>
+        <div className={`${styles.frameCluster} ${styles.frameClusterRight}`} aria-hidden="true">
+          <span className={`${styles.emptyFrame} ${styles.frameBrown}`} />
+          <span className={`${styles.emptyFrame} ${styles.frameRust}`} />
+        </div>
         <svg className={`${styles.hangingPlant} ${styles.hangingPlantLeft}`} viewBox="0 0 100 150" aria-hidden="true">
           <path d="M50 0v30M35 30h30" fill="none" stroke="#67452d" strokeWidth="3" strokeLinecap="round" />
           <path d="M35 30h30l-5 24H40z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M43 52c-2 17-11 20-7 32 3 8 11 8 11 18M56 52c4 15 14 19 10 29-3 7-10 9-9 20M50 54v31" fill="none" stroke="#526742" strokeWidth="3" strokeLinecap="round" />
-          <path d="M39 69c-12-10-19 1-12 8 4 4 10 1 12-8Zm13 8c-13-8-18 4-10 10 5 3 10-1 10-10Zm14-6c12-10 19 1 12 8-4 4-10 1-12-8ZM49 97c-11-8-17 3-9 9 5 3 9-1 9-9Zm7-6c12-9 18 2 10 8-5 4-10 0-10-8Z" fill="#87966b" stroke="#40553a" strokeWidth="1.5" strokeLinejoin="round" />
+          <path d="M43 52c-1 16-5 31-4 62M50 53c1 20 0 39 1 65M57 52c3 18 7 37 6 62M47 54c-5 17-10 32-10 49M54 54c7 15 12 30 12 45" fill="none" stroke="#526742" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M42 64c-9-8-13 0-6 5 3 2 5 0 6-5Zm-1 13c-9-7-13 1-6 5 3 2 5 0 6-5Zm-1 14c-8-6-12 1-5 5 3 1 5-1 5-5Zm12-28c-8-8-13 0-6 5 3 2 5 0 6-5Zm0 15c-9-7-13 1-6 5 3 2 5 0 6-5Zm1 15c-8-7-12 1-5 5 3 2 5 0 5-5Zm11-27c9-7 13 1 6 5-3 2-5 0-6-5Zm1 14c9-7 13 1 6 5-3 2-5 0-6-5Zm0 14c8-6 12 1 5 5-3 1-5-1-5-5Zm-27-1c-8-6-12 1-5 5 3 1 5-1 5-5Zm29 1c8-6 12 1 5 5-3 1-5-1-5-5Z" fill="#87966b" stroke="#40553a" strokeWidth="1" strokeLinejoin="round" />
+          <path d="M44 57c-2 17-3 36-2 79m5-80c-2 23-3 41-2 71m11-73c1 25 2 45 4 76m3-73c4 22 5 38 6 63M49 58c-7 21-9 37-10 59M55 58c8 19 11 35 13 55" fill="none" stroke="#526742" strokeWidth="1.1" strokeLinecap="round" />
+          <path d="M43 73c-5-5-9-2-6 2 2 2 4 1 6-2Zm-1 12c-6-4-9 0-5 3 2 1 4 0 5-3Zm0 13c-5-4-8 0-4 3 2 1 4 0 4-3Zm0 13c-5-3-7 1-3 3 2 1 3 0 3-3Zm5-39c-5-5-9-2-6 2 2 2 4 1 6-2Zm-1 13c-6-4-9 0-5 3 2 1 4 0 5-3Zm1 14c-5-4-8 0-4 3 2 1 4 0 4-3Zm0 13c-4-3-7 1-3 3 2 1 3 0 3-3Zm9-38c5-4 8 0 4 3-2 1-4 0-4-3Zm2 13c6-4 9 0 5 3-2 1-4 0-5-3Zm1 14c5-4 8 0 4 3-2 1-4 0-4-3Zm1 13c4-3 7 1 3 3-2 1-3 0-3-3Zm-6-51c5-4 8 0 4 3-2 1-4 0-4-3Zm9 17c6-4 9 0 5 3-2 1-4 0-5-3Zm2 14c5-4 8 0 4 3-2 1-4 0-4-3Z" fill="#a2b47b" stroke="#617c50" strokeWidth=".7" strokeLinejoin="round" />
           <path d="M38 43h24" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
         </svg>
         <svg className={`${styles.hangingPlant} ${styles.hangingPlantRight}`} viewBox="0 0 100 150" aria-hidden="true">
           <path d="M50 0v30M35 30h30" fill="none" stroke="#67452d" strokeWidth="3" strokeLinecap="round" />
           <path d="M35 30h30l-5 24H40z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M43 52c-2 17-11 20-7 32 3 8 11 8 11 18M56 52c4 15 14 19 10 29-3 7-10 9-9 20M50 54v31" fill="none" stroke="#526742" strokeWidth="3" strokeLinecap="round" />
-          <path d="M39 69c-12-10-19 1-12 8 4 4 10 1 12-8Zm13 8c-13-8-18 4-10 10 5 3 10-1 10-10Zm14-6c12-10 19 1 12 8-4 4-10 1-12-8ZM49 97c-11-8-17 3-9 9 5 3 9-1 9-9Zm7-6c12-9 18 2 10 8-5 4-10 0-10-8Z" fill="#87966b" stroke="#40553a" strokeWidth="1.5" strokeLinejoin="round" />
+          <path d="M43 52c-1 16-5 31-4 62M50 53c1 20 0 39 1 65M57 52c3 18 7 37 6 62M47 54c-5 17-10 32-10 49M54 54c7 15 12 30 12 45" fill="none" stroke="#526742" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M42 64c-9-8-13 0-6 5 3 2 5 0 6-5Zm-1 13c-9-7-13 1-6 5 3 2 5 0 6-5Zm-1 14c-8-6-12 1-5 5 3 1 5-1 5-5Zm12-28c-8-8-13 0-6 5 3 2 5 0 6-5Zm0 15c-9-7-13 1-6 5 3 2 5 0 6-5Zm1 15c-8-7-12 1-5 5 3 2 5 0 5-5Zm11-27c9-7 13 1 6 5-3 2-5 0-6-5Zm1 14c9-7 13 1 6 5-3 2-5 0-6-5Zm0 14c8-6 12 1 5 5-3 1-5-1-5-5Zm-27-1c-8-6-12 1-5 5 3 1 5-1 5-5Zm29 1c8-6 12 1 5 5-3 1-5-1-5-5Z" fill="#87966b" stroke="#40553a" strokeWidth="1" strokeLinejoin="round" />
+          <path d="M44 57c-2 17-3 36-2 79m5-80c-2 23-3 41-2 71m11-73c1 25 2 45 4 76m3-73c4 22 5 38 6 63M49 58c-7 21-9 37-10 59M55 58c8 19 11 35 13 55" fill="none" stroke="#526742" strokeWidth="1.1" strokeLinecap="round" />
+          <path d="M43 73c-5-5-9-2-6 2 2 2 4 1 6-2Zm-1 12c-6-4-9 0-5 3 2 1 4 0 5-3Zm0 13c-5-4-8 0-4 3 2 1 4 0 4-3Zm0 13c-5-3-7 1-3 3 2 1 3 0 3-3Zm5-39c-5-5-9-2-6 2 2 2 4 1 6-2Zm-1 13c-6-4-9 0-5 3 2 1 4 0 5-3Zm1 14c-5-4-8 0-4 3 2 1 4 0 4-3Zm0 13c-4-3-7 1-3 3 2 1 3 0 3-3Zm9-38c5-4 8 0 4 3-2 1-4 0-4-3Zm2 13c6-4 9 0 5 3-2 1-4 0-5-3Zm1 14c5-4 8 0 4 3-2 1-4 0-4-3Zm1 13c4-3 7 1 3 3-2 1-3 0-3-3Zm-6-51c5-4 8 0 4 3-2 1-4 0-4-3Zm9 17c6-4 9 0 5 3-2 1-4 0-5-3Zm2 14c5-4 8 0 4 3-2 1-4 0-4-3Z" fill="#a2b47b" stroke="#617c50" strokeWidth=".7" strokeLinejoin="round" />
           <path d="M38 43h24" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
         </svg>
         <svg className={`${styles.cornerPlant} ${styles.cornerPlantLeft}`} viewBox="0 0 120 130" aria-hidden="true">
-          <path d="M23 84c-8-5-7-17 2-22-5-9 1-20 12-21 1-12 14-18 23-10 8-9 23-5 25 7 12-2 21 8 17 19 10 7 9 20-1 26 3 9-6 16-15 13H38c-8 3-17-3-15-12Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M31 57c-2-7 3-12 10-12 4-8 13-9 19-3 7-6 16-3 17 5 8-1 12 6 9 12 6 5 3 13-4 15H39c-7 0-11-8-8-14Z" fill="#a9bd83" />
+          <path d="M60 90C47 77 29 76 19 67 11 60 16 50 25 51 15 43 19 32 29 31 38 30 43 41 44 50 41 36 49 27 57 31 68 36 65 55 60 90Zm0 0C56 69 52 50 54 36 56 24 68 22 73 32 82 25 91 31 87 42 99 40 103 51 96 59 103 69 88 81 60 90Zm0 0C71 75 84 64 96 62 108 60 112 71 103 77 111 86 103 96 93 93 86 103 72 98 60 90Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M34 43c3-2 6 1 6 5l-2 5c-4-1-6-5-4-10Zm28-6c4-2 7 1 7 5l-2 5c-4-1-6-5-5-10Zm25 29c4-1 6 2 5 5l-3 4c-4-1-5-4-2-9Z" fill="#617c50" />
+          <path d="M31 40c5 4 8 9 11 15m16-13c1 12 1 28 2 48m32-17c-9 5-19 11-32 17" fill="none" stroke="#b5c78b" strokeWidth="1.7" strokeLinecap="round" />
+          <path d="M32 54c3 2 5 5 6 8m16-24c3 2 5 5 6 9m26 27c4-2 7-3 10-3" fill="none" stroke="#617c50" strokeWidth="3" strokeLinecap="round" />
           <path d="M42 86h36l-5 34H47z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
           <path d="M40 86h40v8H40z" fill="#c18b5f" stroke="#67452d" strokeWidth="2" />
           <path d="M49 103h22" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
         </svg>
         <svg className={`${styles.cornerPlant} ${styles.cornerPlantRight}`} viewBox="0 0 120 130" aria-hidden="true">
-          <path d="M23 84c-8-5-7-17 2-22-5-9 1-20 12-21 1-12 14-18 23-10 8-9 23-5 25 7 12-2 21 8 17 19 10 7 9 20-1 26 3 9-6 16-15 13H38c-8 3-17-3-15-12Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M31 57c-2-7 3-12 10-12 4-8 13-9 19-3 7-6 16-3 17 5 8-1 12 6 9 12 6 5 3 13-4 15H39c-7 0-11-8-8-14Z" fill="#a9bd83" />
+          <path d="M60 90C47 77 29 76 19 67 11 60 16 50 25 51 15 43 19 32 29 31 38 30 43 41 44 50 41 36 49 27 57 31 68 36 65 55 60 90Zm0 0C56 69 52 50 54 36 56 24 68 22 73 32 82 25 91 31 87 42 99 40 103 51 96 59 103 69 88 81 60 90Zm0 0C71 75 84 64 96 62 108 60 112 71 103 77 111 86 103 96 93 93 86 103 72 98 60 90Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M34 43c3-2 6 1 6 5l-2 5c-4-1-6-5-4-10Zm28-6c4-2 7 1 7 5l-2 5c-4-1-6-5-5-10Zm25 29c4-1 6 2 5 5l-3 4c-4-1-5-4-2-9Z" fill="#617c50" />
+          <path d="M31 40c5 4 8 9 11 15m16-13c1 12 1 28 2 48m32-17c-9 5-19 11-32 17" fill="none" stroke="#b5c78b" strokeWidth="1.7" strokeLinecap="round" />
+          <path d="M32 54c3 2 5 5 6 8m16-24c3 2 5 5 6 9m26 27c4-2 7-3 10-3" fill="none" stroke="#617c50" strokeWidth="3" strokeLinecap="round" />
           <path d="M42 86h36l-5 34H47z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
           <path d="M40 86h40v8H40z" fill="#c18b5f" stroke="#67452d" strokeWidth="2" />
           <path d="M49 103h22" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
         </svg>
         <svg className={`${styles.cornerPlant} ${styles.cornerPlantBack}`} viewBox="0 0 120 130" aria-hidden="true">
-          <path d="M23 84c-8-5-7-17 2-22-5-9 1-20 12-21 1-12 14-18 23-10 8-9 23-5 25 7 12-2 21 8 17 19 10 7 9 20-1 26 3 9-6 16-15 13H38c-8 3-17-3-15-12Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M31 57c-2-7 3-12 10-12 4-8 13-9 19-3 7-6 16-3 17 5 8-1 12 6 9 12 6 5 3 13-4 15H39c-7 0-11-8-8-14Z" fill="#a9bd83" />
+          <path d="M60 90C47 77 29 76 19 67 11 60 16 50 25 51 15 43 19 32 29 31 38 30 43 41 44 50 41 36 49 27 57 31 68 36 65 55 60 90Zm0 0C56 69 52 50 54 36 56 24 68 22 73 32 82 25 91 31 87 42 99 40 103 51 96 59 103 69 88 81 60 90Zm0 0C71 75 84 64 96 62 108 60 112 71 103 77 111 86 103 96 93 93 86 103 72 98 60 90Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M34 43c3-2 6 1 6 5l-2 5c-4-1-6-5-4-10Zm28-6c4-2 7 1 7 5l-2 5c-4-1-6-5-5-10Zm25 29c4-1 6 2 5 5l-3 4c-4-1-5-4-2-9Z" fill="#617c50" />
+          <path d="M31 40c5 4 8 9 11 15m16-13c1 12 1 28 2 48m32-17c-9 5-19 11-32 17" fill="none" stroke="#b5c78b" strokeWidth="1.7" strokeLinecap="round" />
+          <path d="M32 54c3 2 5 5 6 8m16-24c3 2 5 5 6 9m26 27c4-2 7-3 10-3" fill="none" stroke="#617c50" strokeWidth="3" strokeLinecap="round" />
           <path d="M42 86h36l-5 34H47z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
           <path d="M40 86h40v8H40z" fill="#c18b5f" stroke="#67452d" strokeWidth="2" />
           <path d="M49 103h22" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
@@ -928,6 +1113,7 @@ export default function CafeRoom() {
                         const emoji = reactionOptions.find((option) => option.id === reaction.emoji)!;
                         return <span className={styles.reactionBubble} key={reaction.id}><Image src={emoji.src} alt={emoji.label} width={54} height={54} /></span>;
                       })}
+                      {isOwnTask && roomTreat && <span className={styles.roomTreatBubble} key={roomTreat.id} aria-hidden="true">{roomTreat.kind === "coffee" ? <CoffeeCupIcon /> : <CookieIcon />}</span>}
                       {occupant.task && <div className={`${styles.taskCard} ${taskCardVisible ? styles.taskCardVisible : ""}`} aria-hidden={!taskCardVisible}>
                         <span className={styles.taskName}>{occupant.task}</span>
                         <span className={styles.taskTime}>{occupant.status === "completed" ? "DONE" : formatRemaining(occupant, now)}</span>
@@ -935,11 +1121,17 @@ export default function CafeRoom() {
                       <span className={styles.avatar}><Image src={occupant.avatar} alt="" width={58} height={58} /></span>
                       <span className={styles.personName}>{occupant.name}</span>
                       {(!backendConfigured || occupant.userId === userId) && <button className={styles.leave} onClick={() => void leaveSeat(seat)} aria-label={`Leave seat ${seat}`}>×</button>}
-                    </div> : <button className={styles.emptySeat} disabled={backendConfigured && !backendReady} onClick={() => void claimSeat(seat)} aria-label={`Claim available seat ${seat}`}><span>+</span></button>}
+                    </div> : <button className={styles.emptySeat} disabled={backendConfigured && (!backendReady || !userId)} onClick={() => void claimSeat(seat)} aria-label={`Claim available seat ${seat}`}><span>+</span></button>}
                 </div>;
               })}
             </div>
           ))}
+        </div>
+        <div className={styles.treatStation}>
+          <div className={`${styles.table} ${styles.treatTable}`}>
+            <button type="button" onClick={() => showRoomTreat("cookie")} disabled={getOwnSeat() === null} aria-label="Enjoy a cookie" title={getOwnSeat() === null ? "Claim a seat to enjoy treats" : "Enjoy a cookie"}><CookieIcon /></button>
+            <button type="button" onClick={() => showRoomTreat("coffee")} disabled={getOwnSeat() === null} aria-label="Enjoy a coffee" title={getOwnSeat() === null ? "Claim a seat to enjoy treats" : "Enjoy a coffee"}><CoffeeCupIcon /></button>
+          </div>
         </div>
         <div className={styles.roomFooter}>
           <span>✦ &nbsp;A GOOD DAY TO BEGIN</span>
@@ -988,7 +1180,7 @@ export default function CafeRoom() {
 
       {availableSeats === 0
         ? <p className={styles.roomFullNotice} role="status" aria-live="polite">The room is full, please come back another time</p>
-        : roomMessage && <p className={styles.roomMessage} role="status">{roomMessage}</p>}
+        : displayedRoomMessage && <p className={styles.roomMessage} role="status">{displayedRoomMessage}</p>}
 
       {welcomeNoticeOpen && <div className={styles.welcomeBackdrop}>
         <div className={`${styles.welcomeTreat} ${styles.welcomeDrink}`} aria-hidden="true">
@@ -1045,8 +1237,37 @@ export default function CafeRoom() {
               </div>
               <p><b>Focus together</b>Work on your own task, keep your session timer running, and enjoy the company of others in the room.</p>
             </div>
+            <div>
+              <div className={styles.welcomeGuideVisual}>
+                <svg viewBox="0 0 48 48" aria-hidden="true">
+                  <path d="M18 32c0-3 3.6-5.5 8-5.5s8 1.5 8 4.5-3.6 5.5-8 5.5-8-1.5-8-4.5Zm14-2V10l7-2v3l-4 1v18" />
+                </svg>
+                <span className={styles.welcomeNumber}>04</span>
+              </div>
+              <p><b>Set the sound</b>Choose background noise and adjust the volume to create a focus-friendly atmosphere.</p>
+            </div>
+            <div>
+              <div className={styles.welcomeGuideVisual}>
+                <svg viewBox="0 0 48 48" aria-hidden="true">
+                  <path d="M8 10h32v24H21l-9 7v-7H8z" />
+                  <path d="M15 19h18m-18 7h12" />
+                </svg>
+                <span className={styles.welcomeNumber}>05</span>
+              </div>
+              <p><b>Take a chat break</b>Open the Chatroom tab to say hello and chat with other café guests between focus sessions.</p>
+            </div>
+            <div>
+              <div className={styles.welcomeGuideVisual}>
+                <svg viewBox="0 0 48 48" aria-hidden="true">
+                  <rect x="8" y="10" width="32" height="30" rx="3" />
+                  <path d="M15 7v7m18-7v7M8 18h32M15 25h5m8 0h5m-18 7h5m8 0h5" />
+                </svg>
+                <span className={styles.welcomeNumber}>06</span>
+              </div>
+              <p><b>Track your café days</b>Visit your profile calendar to review work time and leave a daily note about your progress.</p>
+            </div>
           </div>
-          <button className={styles.welcomeDismiss} type="button" onClick={() => void dismissWelcomeNotice()} disabled={welcomeNoticeBusy} autoFocus>{welcomeNoticeBusy ? "SAVING..." : "LET'S GET STARTED"}</button>
+          <button className={styles.welcomeDismiss} type="button" onClick={dismissWelcomeNotice} autoFocus>Enter the cafe</button>
         </section>
       </div>}
 

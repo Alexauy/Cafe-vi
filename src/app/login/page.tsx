@@ -73,7 +73,7 @@ export default function LoginPage() {
         {!configured && <p className={styles.notice}>Sign-in and saved profiles aren&apos;t connected yet. You can still explore the cafÃ© in preview mode.</p>}
         <form onSubmit={submit}>
           <label>Email<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          {mode !== "reset" && <label>Password<input type="password" autoComplete={mode === "sign-in" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>}
+          {mode !== "reset" && <label>Password<input type="password" autoComplete={mode === "sign-in" ? "current-password" : "new-password"} minLength={mode === "sign-up" ? 8 : undefined} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>}
           {message && <p className={messageTone === "success" ? styles.notice : styles.message} role="status">{message}</p>}
           <button className={styles.submit} disabled={!configured || busy}>{busy ? "ONE MOMENT..." : mode === "sign-in" ? "SIGN IN" : mode === "sign-up" ? "CREATE ACCOUNT" : "SEND RESET LINK"}</button>
         </form>

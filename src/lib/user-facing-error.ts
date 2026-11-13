@@ -32,7 +32,7 @@ export function userFacingError(error: unknown, fallback = "Something went wrong
   if (normalized.includes("invalid_session_duration")) return "The café couldn't accept that duration. The timer accepts 1 minute through 24 hours.";
   if (normalized.includes("invalid_task_name")) return "Enter a task name between 1 and 80 characters.";
   if (normalized.includes("invalid_seat_number")) return "That seat isn't available. Please choose another.";
-  if (normalized.includes("invalid login credentials")) return "That email and password don't match. Please try again.";
+  if (normalized.includes("invalid login credentials")) return "This password is incorrect.";
   if (normalized.includes("email not confirmed")) return "Please confirm your email before signing in.";
   if (normalized.includes("user already registered")) return "An account already exists with that email. Try signing in instead.";
   if (normalized.includes("password") && (normalized.includes("short") || normalized.includes("characters"))) {

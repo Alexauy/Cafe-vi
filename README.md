@@ -18,7 +18,7 @@ Open <http://localhost:3000>. Without Supabase credentials, the app runs the loc
 The app needs a Supabase project for accounts and shared room state. No project credentials are needed to review the local preview.
 
 1. Create a Supabase project and enable email/password authentication.
-2. Run the SQL files in `supabase/migrations` in filename order in the Supabase SQL Editor. The initial migration creates the room, 20 fixed seats, profiles, work sessions, row-level security, and protected RPCs; later migrations allow all eight avatar choices, restore a user's seat during the reconnect grace period, add private diary entries and Pacific-day activity summaries, accept whole-minute work sessions up to 24 hours, restrict diary writing to the current Pacific day, add saved live chat messages, add protected chat moderator roles, and record when users dismiss the welcome guide. For an existing project, apply any newly added migration before expecting its change to take effect.
+2. Run the SQL files in `supabase/migrations` in filename order in the Supabase SQL Editor. The initial migration creates the room, 20 fixed seats, profiles, work sessions, row-level security, and protected RPCs; later migrations allow all eight avatar choices, restore a user's seat during the reconnect grace period, add private diary entries and Pacific-day activity summaries, accept whole-minute work sessions up to 24 hours, restrict diary writing to the current Pacific day, add saved live chat messages, add protected chat moderator roles, and allow signed-out visitors to preview occupied seats and public profile names/avatars without exposing work-session details or allowing seat claims. For an existing project, apply any newly added migration before expecting its change to take effect.
 3. In Authentication URL Configuration, set the local Site URL to `http://localhost:3000` and add `http://localhost:3000/**` to the allowed Redirect URLs. Password recovery returns through `/auth/callback` and then opens `/reset-password`; add the equivalent allowed URL pattern for each deployed app domain.
 4. Confirm that `seats`, `profiles`, `work_sessions`, and `chat_messages` are in the `supabase_realtime` publication. The migrations add them when that publication exists.
 5. Enable the `pg_cron` extension, then schedule cleanup once per minute in the SQL Editor with `select cron.schedule('cleanup-cafe-state', '* * * * *', $$select public.cleanup_cafe_state();$$);`. This resolves expired timers and releases stale seats after the 45-second grace period.
@@ -36,8 +36,20 @@ Only add trusted accounts. The table has no client-side write access; moderator 
 
 The service-role key is not needed by the browser app and must never be put in a `NEXT_PUBLIC_` variable.
 
+## Host on a public website
+
+The PRD selects Vercel for the Next.js app and Supabase for hosted auth and data.
+
+1. Push the repository to GitHub and import it into Vercel as a Next.js project. Keep the default build command (`next build`) and output settings.
+2. In Vercel project settings, add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for Production and any Preview environments that should connect to Supabase. Never add the Supabase service-role key to the browser app.
+3. Before launch, apply every SQL migration in filename order to the Supabase project, enable Realtime for the documented tables, and configure the `pg_cron` cleanup job described above.
+4. In Supabase Authentication URL Configuration, set the Site URL to the production origin (for example, `https://cafe.example.com`) and add that origin's allowed redirect URLs, including `/auth/callback`. Add the Vercel preview URL patterns only if preview deployments should support authentication.
+5. Deploy from Vercel, test sign-up/sign-in, password recovery, seat claims, chat, and signed-out occupancy using separate browser sessions, then attach a custom domain in Vercel and follow its DNS instructions if desired.
+
+Explicit sign-out ends any active work session and frees the seat before signing out the current browser session. Closing the page sends keepalive requests to perform the same seat release and local sign-out. Browsers can still terminate network requests during shutdown, so heartbeat timeout and scheduled cleanup remain the fallback for crashes, lost connections, or failed exit requests.
+
 ## Current full-stack functionality
 
-With the migrations applied and environment configured, users can create accounts or sign in, edit their username/avatar, claim one of 20 seats, start fixed-duration work sessions, chat with other signed-in café guests, and leave. Chat history displays the latest 50 messages. Assigned moderators additionally see controls to delete chat messages for everyone; PostgreSQL row-level security enforces this permission. Seat claims and session timestamps are enforced by PostgreSQL. Seats, profiles, sessions, and chat messages update in connected rooms through Supabase Realtime; a heartbeat and cleanup job manage abandoned seats.
+With the migrations applied and environment configured, users can create accounts or sign in, edit their username/avatar, claim one of 20 seats, start fixed-duration work sessions, chat with other signed-in café guests, and leave. Signed-out visitors can view who is seated and how many seats are available, but cannot claim a seat. Chat history displays the latest 50 messages. Assigned moderators additionally see controls to delete chat messages for everyone; PostgreSQL row-level security enforces this permission. Seat claims and session timestamps are enforced by PostgreSQL. Seats, profiles, sessions, and chat messages update in connected rooms through Supabase Realtime; signed-out room previews refresh every 10 seconds, and a heartbeat and cleanup job manage abandoned seats.
 
 Without configuration, the room remains a local UI preview and its sample state resets on refresh. Ambient audio is still a placeholder. Multi-browser behavior cannot be verified until the app is connected to a Supabase project.
