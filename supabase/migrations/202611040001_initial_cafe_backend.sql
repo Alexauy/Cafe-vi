@@ -156,13 +156,16 @@ begin
       select 1 from public.seats seat
       where seat.room_id = session.room_id
         and seat.seat_no = session.seat_no
-        and seat.state = 'reserved'
-        and seat.reserved_until <= operation_time
+        and (
+          (seat.state = 'reserved' and seat.reserved_until <= operation_time)
+          or (seat.state = 'occupied' and seat.last_seen_at <= operation_time - interval '10 seconds')
+        )
     );
 
   update public.seats
   set state = 'available', occupant_id = null, reserved_until = null, updated_at = operation_time
-  where state = 'reserved' and reserved_until <= operation_time;
+  where (state = 'reserved' and reserved_until <= operation_time)
+    or (state = 'occupied' and last_seen_at <= operation_time - interval '10 seconds');
 
   select * into current_seat
   from public.seats
@@ -235,7 +238,7 @@ begin
   end if;
 
   update public.seats
-  set state = 'reserved', reserved_until = clock_timestamp() + interval '45 seconds', last_seen_at = clock_timestamp(), updated_at = clock_timestamp()
+  set state = 'reserved', reserved_until = clock_timestamp() + interval '10 seconds', last_seen_at = clock_timestamp(), updated_at = clock_timestamp()
   where occupant_id = auth.uid() and state = 'occupied';
 end;
 $$;
@@ -394,11 +397,8 @@ begin
 
   update public.seats
   set state = 'available', occupant_id = null, reserved_until = null, updated_at = operation_time
-  where state = 'reserved' and reserved_until <= operation_time;
-
-  update public.seats
-  set state = 'reserved', reserved_until = operation_time + interval '45 seconds', updated_at = operation_time
-  where state = 'occupied' and last_seen_at <= operation_time - interval '45 seconds';
+  where (state = 'reserved' and reserved_until <= operation_time)
+    or (state = 'occupied' and last_seen_at <= operation_time - interval '10 seconds');
   get diagnostics released_count = row_count;
   return released_count;
 end;

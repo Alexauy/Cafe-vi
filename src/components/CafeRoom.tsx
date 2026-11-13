@@ -377,7 +377,15 @@ export default function CafeRoom() {
 
     function startGuestRefresh(roomId: string) {
       if (guestRefreshTimer !== null) window.clearInterval(guestRefreshTimer);
-      guestRefreshTimer = window.setInterval(() => { void refreshRoom(roomId); }, 10_000);
+      guestRefreshTimer = window.setInterval(() => { void refreshRoom(roomId); }, 5_000);
+      if (visibilityChangeHandler) document.removeEventListener("visibilitychange", visibilityChangeHandler);
+      visibilityChangeHandler = () => {
+        if (document.visibilityState === "visible") void refreshRoom(roomId);
+      };
+      document.addEventListener("visibilitychange", visibilityChangeHandler);
+      if (onlineHandler) window.removeEventListener("online", onlineHandler);
+      onlineHandler = () => { void refreshRoom(roomId); };
+      window.addEventListener("online", onlineHandler);
     }
 
     async function sendHeartbeat() {
@@ -472,7 +480,13 @@ export default function CafeRoom() {
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (!active) return;
       if (userError) {
-        setRoomMessage(userFacingError(userError, "We couldn't check your sign-in. Please sign in again."));
+        console.error("The current sign-in state could not be verified; loading the public café preview instead:", userError);
+        authenticated = false;
+        currentUserIdRef.current = null;
+        setUserId(null);
+        await refreshRoom("");
+        if (!active) return;
+        startGuestRefresh("");
         setBackendReady(true);
         return;
       }
@@ -574,7 +588,7 @@ export default function CafeRoom() {
       reactionChannel.current = roomChannel;
       if (authenticated) {
         void sendHeartbeat();
-        heartbeatTimer = window.setInterval(() => { void sendHeartbeat(); }, 15_000);
+        heartbeatTimer = window.setInterval(() => { void sendHeartbeat(); }, 5_000);
         visibilityChangeHandler = () => {
           if (document.visibilityState === "visible") void sendHeartbeat();
         };
@@ -593,44 +607,22 @@ export default function CafeRoom() {
             apikey: supabaseKey,
             Authorization: `Bearer ${exitAccessToken}`,
           };
-          const releaseSeat = () => fetch(`${supabaseApiUrl}/rest/v1/rpc/leave_cafe`, {
+          void fetch(`${supabaseApiUrl}/rest/v1/rpc/leave_cafe`, {
             method: "POST",
             headers: { ...headers, "Content-Type": "application/json" },
             body: "{}",
             keepalive: true,
-          }).then(async (response) => {
-            if (response.ok) return;
-            console.error("The café seat could not be released on page exit:", response.status);
-            const fallbackResponse = await fetch(`${supabaseApiUrl}/rest/v1/rpc/mark_cafe_disconnected`, {
+          }).then((response) => {
+            if (!response.ok) console.error("The café seat could not be released on page exit:", response.status);
+          }, (error: unknown) => {
+            console.error("The café seat could not be released on page exit:", error);
+          }).then(() => {
+            return fetch(`${supabaseApiUrl}/auth/v1/logout?scope=local`, {
               method: "POST",
-              headers: { ...headers, "Content-Type": "application/json" },
-              body: "{}",
+              headers,
               keepalive: true,
             });
-            if (!fallbackResponse.ok) {
-              console.error("The café seat could not be marked disconnected on page exit:", fallbackResponse.status);
-            }
-          }).catch(async (error: unknown) => {
-            console.error("The café seat could not be released on page exit:", error);
-            try {
-              const fallbackResponse = await fetch(`${supabaseApiUrl}/rest/v1/rpc/mark_cafe_disconnected`, {
-                method: "POST",
-                headers: { ...headers, "Content-Type": "application/json" },
-                body: "{}",
-                keepalive: true,
-              });
-              if (!fallbackResponse.ok) {
-                console.error("The café seat could not be marked disconnected on page exit:", fallbackResponse.status);
-              }
-            } catch (fallbackError) {
-              console.error("The café seat could not be marked disconnected on page exit:", fallbackError);
-            }
-          });
-          void releaseSeat().then(() => fetch(`${supabaseApiUrl}/auth/v1/logout?scope=local`, {
-            method: "POST",
-            headers,
-            keepalive: true,
-          })).then((response) => {
+          }).then((response) => {
             if (!response.ok) console.error("The current sign-in session could not be ended on page exit:", response.status);
           }).catch((error: unknown) => {
             console.error("The current sign-in session could not be ended on page exit:", error);

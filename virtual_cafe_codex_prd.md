@@ -244,7 +244,7 @@ Implementation requirements:
 - Enforce one active seat assignment per user per room.
 - Use an atomic transaction or equivalent backend operation to claim a seat.
 - Detect disconnections through the real-time service or a heartbeat mechanism.
-- Use a configurable reconnection grace period; **30–60 seconds is a reasonable initial design choice**, subject to testing.
+- Use a configurable 10-second reconnection grace period.
 - Ensure that only the currently valid connection or session can renew a seat assignment.
 - Make cleanup idempotent so duplicate disconnect events do not corrupt occupancy.
 
@@ -324,7 +324,7 @@ For the initial demo, use separate browser profiles or devices to test concurren
 1. **Define the room and design system.** Establish the 20-seat layout, seat identifiers, color tokens, typography, and avatar asset specifications.
 2. **Build the static room prototype.** Render all 20 seats and placeholder avatars. Validate visual density and task-card placement before completing the artwork.
 3. **Implement authentication and seat allocation.** Add account persistence, atomic seat claims, room capacity enforcement, and explicit seat release.
-4. **Implement presence and reconnection.** Add disconnect detection, a grace period, cleanup, and session recovery.
+4. **Implement presence and reconnection.** Add disconnect detection, a 10-second grace period, cleanup, and session recovery.
 5. **Implement fixed work sessions.** Add task creation, authoritative timestamps, public task cards, cancellation, and completion.
 6. **Add real-time synchronization.** Verify that occupancy and task states remain consistent across multiple browsers.
 7. **Integrate ambience and visual polish.** Add the looping audio track, minimalist custom avatars, and subtle environmental details.
