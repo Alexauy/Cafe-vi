@@ -25,7 +25,7 @@ export function userFacingError(error: unknown, fallback = "Something went wrong
   if (normalized.includes("already_seated")) return "You're already at a table. Leave your current seat before choosing another.";
   if (normalized.includes("seat_unavailable")) return "That seat was just taken. Please choose another open seat.";
   if (normalized.includes("authentication_required") || normalized.includes("jwt expired") || normalized.includes("auth session missing")) {
-    return "Your sign-in session has expired. Please sign in again.";
+    return "Sign in or make an account to claim a seat!";
   }
   if (normalized.includes("seat_required")) return "Choose an open seat before starting a task.";
   if (normalized.includes("session_already_active")) return "You already have a task in progress.";

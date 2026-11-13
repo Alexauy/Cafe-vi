@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { AuthChangeEvent } from "@supabase/supabase-js";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { avatarOptions } from "@/lib/avatar-options";
@@ -31,6 +30,7 @@ type Occupant = {
 };
 
 type ProfileRow = { id: string; username: string; avatar_id: string };
+type WelcomeProfileRow = Pick<ProfileRow, "username" | "avatar_id"> & { welcome_seen: boolean };
 type SeatRow = { seat_no: number; state: string; occupant_id: string | null };
 type SessionRow = { seat_no: number; task_name: string; ends_at: string; status: "active" | "completed" | "cancelled"; finished_at: string | null };
 type ChatMessage = { id: string; room_id: string; user_id: string; content: string; created_at: string; username: string };
@@ -89,8 +89,7 @@ function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   const messages = new Map(current.map((message) => [message.id, message]));
   for (const message of incoming) messages.set(message.id, message);
   return [...messages.values()]
-    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
-    .slice(-50);
+    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
 }
 
 const demoOccupants: Record<number, Occupant> = {
@@ -111,7 +110,6 @@ function formatRemaining(occupant: Occupant, now: number) {
 }
 
 export default function CafeRoom() {
-  const router = useRouter();
   const [occupants, setOccupants] = useState<Record<number, Occupant>>(() => backendConfigured ? {} : demoOccupants);
   const [selected, setSelected] = useState<number | null>(null);
   const [selectedAvatar, setSelectedAvatar] = useState<string>(avatarOptions[1].src);
@@ -120,11 +118,14 @@ export default function CafeRoom() {
   const [hours, setHours] = useState("0");
   const [minutes, setMinutes] = useState("25");
   const [userId, setUserId] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const [backendReady, setBackendReady] = useState(!backendConfigured);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [roomMessage, setRoomMessage] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  const [welcomeNoticeOpen, setWelcomeNoticeOpen] = useState(false);
+  const [welcomeNoticeBusy, setWelcomeNoticeBusy] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -153,6 +154,41 @@ export default function CafeRoom() {
   const occupied = Object.keys(occupants).length;
   const availableSeats = 20 - occupied;
 
+  const dismissWelcomeNotice = useCallback(async () => {
+    if (welcomeNoticeBusy) return;
+    setWelcomeNoticeBusy(true);
+    try {
+      if (userId) {
+        const { error } = await createClient().from("profiles")
+          .update({ welcome_seen: true })
+          .eq("id", userId);
+        if (error) {
+          setRoomMessage(userFacingError(error, "We couldn't save that you've seen the welcome guide. Please try again."));
+          return;
+        }
+      }
+      setWelcomeNoticeOpen(false);
+    } catch (error) {
+      setRoomMessage(userFacingError(error, "We couldn't save that you've seen the welcome guide. Please try again."));
+    } finally {
+      setWelcomeNoticeBusy(false);
+    }
+  }, [userId, welcomeNoticeBusy]);
+
+  useEffect(() => {
+    if (!backendReady || userId) return;
+    setWelcomeNoticeOpen(true);
+  }, [backendReady, userId]);
+
+  useEffect(() => {
+    if (!welcomeNoticeOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismissWelcomeNotice();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [welcomeNoticeOpen, dismissWelcomeNotice]);
+
   useEffect(() => {
     const ticker = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(ticker);
@@ -169,8 +205,7 @@ export default function CafeRoom() {
         const { data, error } = await createClient().from("chat_messages")
           .select("id,room_id,user_id,content,created_at,profiles!chat_messages_user_id_fkey(username)")
           .eq("room_id", roomId)
-          .order("created_at", { ascending: false })
-          .limit(50);
+          .order("created_at", { ascending: false });
         if (!active) return;
         if (error) {
           setChatError(userFacingError(error, "We couldn't load the chat. Please try again."));
@@ -286,12 +321,13 @@ export default function CafeRoom() {
     let pageHideHandler: (() => void) | null = null;
     let visibilityChangeHandler: (() => void) | null = null;
     let onlineHandler: (() => void) | null = null;
+    let authenticated = false;
     let heartbeatWarningShown = false;
     let heartbeatInFlight = false;
     const heartbeatWarning = "We're having trouble keeping your seat active. Check your connection and try again.";
 
     async function sendHeartbeat() {
-      if (!active || heartbeatInFlight) return;
+      if (!active || !authenticated || heartbeatInFlight) return;
       heartbeatInFlight = true;
       try {
         const { error } = await supabase.rpc("heartbeat_cafe_presence");
@@ -368,34 +404,33 @@ export default function CafeRoom() {
         setBackendReady(true);
         return;
       }
-      if (!userData.user) {
-        router.replace("/login");
-        return;
-      }
+      if (userData.user) {
+        authenticated = true;
+        setUserId(userData.user.id);
+        const { data: moderator, error: moderatorError } = await supabase.from("chat_moderators")
+          .select("user_id")
+          .eq("user_id", userData.user.id)
+          .maybeSingle();
+        if (!active) return;
+        if (moderatorError) {
+          setModerationError(userFacingError(moderatorError, "We couldn't check chat moderation access."));
+        } else {
+          setIsModerator(Boolean(moderator));
+        }
 
-      setUserId(userData.user.id);
-      const { data: moderator, error: moderatorError } = await supabase.from("chat_moderators")
-        .select("user_id")
-        .eq("user_id", userData.user.id)
-        .maybeSingle();
-      if (!active) return;
-      if (moderatorError) {
-        setModerationError(userFacingError(moderatorError, "We couldn't check chat moderation access."));
-      } else {
-        setIsModerator(Boolean(moderator));
-      }
-
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("username,avatar_id")
-        .eq("id", userData.user.id)
-        .single();
-      const profile = profileData as unknown as Pick<ProfileRow, "username" | "avatar_id"> | null;
-      if (profileError) setRoomMessage(userFacingError(profileError, "We couldn't load your profile. Please try again."));
-      if (profile) {
-        setName(profile.username);
-        const avatar = avatarOptions.find((option) => option.id === profile.avatar_id);
-        if (avatar) setSelectedAvatar(avatar.src);
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("username,avatar_id,welcome_seen")
+          .eq("id", userData.user.id)
+          .single();
+        const profile = profileData as unknown as WelcomeProfileRow | null;
+        if (profileError) setRoomMessage(userFacingError(profileError, "We couldn't load your profile. Please try again."));
+        if (profile) {
+          if (!profile.welcome_seen) setWelcomeNoticeOpen(true);
+          setName(profile.username);
+          const avatar = avatarOptions.find((option) => option.id === profile.avatar_id);
+          if (avatar) setSelectedAvatar(avatar.src);
+        }
       }
 
       const { data: room, error: roomError } = await supabase.from("rooms").select("id").eq("slug", "cafe-vi").single();
@@ -450,21 +485,30 @@ export default function CafeRoom() {
         })
         .subscribe();
       reactionChannel.current = roomChannel;
-      void sendHeartbeat();
-      heartbeatTimer = window.setInterval(() => { void sendHeartbeat(); }, 15_000);
-      visibilityChangeHandler = () => {
-        if (document.visibilityState === "visible") void sendHeartbeat();
-      };
-      document.addEventListener("visibilitychange", visibilityChangeHandler);
-      onlineHandler = () => { void sendHeartbeat(); };
-      window.addEventListener("online", onlineHandler);
-      pageHideHandler = () => { void supabase.rpc("mark_cafe_disconnected"); };
-      window.addEventListener("pagehide", pageHideHandler);
+      if (authenticated) {
+        void sendHeartbeat();
+        heartbeatTimer = window.setInterval(() => { void sendHeartbeat(); }, 15_000);
+        visibilityChangeHandler = () => {
+          if (document.visibilityState === "visible") void sendHeartbeat();
+        };
+        document.addEventListener("visibilitychange", visibilityChangeHandler);
+        onlineHandler = () => { void sendHeartbeat(); };
+        window.addEventListener("online", onlineHandler);
+        pageHideHandler = () => { void supabase.rpc("mark_cafe_disconnected"); };
+        window.addEventListener("pagehide", pageHideHandler);
+      }
       setBackendReady(true);
     }
 
     const { data } = supabase.auth.onAuthStateChange((event: AuthChangeEvent) => {
-      if (event === "SIGNED_OUT" && active) router.replace("/login");
+      if (event === "SIGNED_OUT" && active) {
+        authenticated = false;
+        if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+        setUserId(null);
+        setIsModerator(false);
+        setRoomMessage("");
+      }
     });
     authSubscription = data.subscription;
     void connect();
@@ -479,7 +523,46 @@ export default function CafeRoom() {
       if (roomChannel) void supabase.removeChannel(roomChannel);
       reactionChannel.current = null;
     };
-  }, [router]);
+  }, []);
+
+  function toggleChatRoom() {
+    setChatOpen((open) => !open);
+  }
+
+  function closeChatRoom() {
+    setChatOpen(false);
+  }
+
+  async function signOut() {
+    setSigningOut(true);
+    setRoomMessage("");
+    try {
+      if (userId) {
+        const { error: leaveError } = await createClient().rpc("leave_cafe");
+        if (leaveError) {
+          setRoomMessage(userFacingError(leaveError, "We couldn't release your seat. Please try again before signing out."));
+          return;
+        }
+        setOccupants((current) => Object.fromEntries(
+          Object.entries(current).filter(([, occupant]) => occupant.userId !== userId),
+        ));
+        setLocalSeat(null);
+      }
+
+      const { error } = await createClient().auth.signOut();
+      if (error) {
+        setRoomMessage(userFacingError(error, "We couldn't sign you out. Please try again."));
+        return;
+      }
+
+      setUserId(null);
+      setIsModerator(false);
+    } catch (error) {
+      setRoomMessage(userFacingError(error, "We couldn't sign you out. Please try again."));
+    } finally {
+      setSigningOut(false);
+    }
+  }
 
   async function claimSeat(seat: number) {
     if (occupants[seat] || busy) return;
@@ -658,15 +741,89 @@ export default function CafeRoom() {
   return (
     <main className={styles.page}>
       <header className={`${styles.topbar} cafe-banner`}>
-        <div className={styles.topRight}>
-          <span className={styles.capacity}><b className={styles.vacancyCount}>{availableSeats}</b><span>SEATS<br />AVAILABLE</span></span>
-          <span className={styles.legend}><i className={styles.legendSeat}>+</i><span>OPEN SEAT<br /><b>Click to claim</b></span></span>
+        <div className={styles.topLeft}>
           <Link className={styles.profile} href="/profile" aria-label="Profile">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="8" r="4" />
               <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7v1H4z" />
             </svg>
           </Link>
+        </div>
+        <div className={styles.bannerActions}>
+          <div className={styles.chatDock}>
+            <button
+              type="button"
+              className={`${styles.chatTab} ${chatOpen ? styles.chatTabOpen : ""}`}
+              onClick={toggleChatRoom}
+              aria-expanded={chatOpen}
+              aria-controls="cafe-chat-panel"
+            >
+              Chatroom
+            </button>
+            <section className={styles.chatPanel} id="cafe-chat-panel" aria-label="Chatroom" hidden={!chatOpen}>
+              <header className={styles.chatHeader}>
+                <div>
+                  <h2>Chatroom</h2>
+                  <p>A cozy little place to say hello.</p>
+                </div>
+                <button type="button" className={styles.chatClose} onClick={closeChatRoom} aria-label="Close chatroom">×</button>
+              </header>
+              <p className={styles.chatModerationNotice}>Chats will be moderated and deleted if inappropriate, be mindful!</p>
+              <div className={styles.chatMessages} role="log" aria-live="polite" aria-relevant="additions text">
+                {!backendConfigured ? (
+                  <p className={styles.chatNotice}>Connect the café account to join the live chat.</p>
+                ) : !backendReady ? (
+                  <p className={styles.chatNotice}>Opening the chat…</p>
+                ) : !userId ? (
+                  <p className={styles.chatNotice}>Sign in to join the conversation.</p>
+                ) : chatLoading && chatMessages.length === 0 ? (
+                  <p className={styles.chatNotice}>Gathering the latest messages…</p>
+                ) : chatMessages.length ? (
+                  chatMessages.map((message) => {
+                    const ownMessage = message.user_id === userId;
+                    return <div key={message.id} className={`${styles.chatMessage} ${ownMessage ? styles.chatOwn : styles.chatOther}`}>
+                      <span className={styles.chatUsername}>{message.username}</span>
+                      <div className={styles.chatBubbleRow}>
+                        <p className={styles.chatBubble}>{message.content}</p>
+                        {isModerator && <button
+                          type="button"
+                          className={styles.chatDelete}
+                          disabled={deletingChatMessageId !== null}
+                          onClick={() => void deleteChatMessage(message.id)}
+                          aria-label={`Delete message from ${message.username}`}
+                          title={`Delete message from ${message.username}`}
+                        >×</button>}
+                      </div>
+                    </div>;
+                  })
+                ) : (
+                  <p className={styles.chatNotice}>It&apos;s quiet here. Say hello!</p>
+                )}
+                <div ref={chatMessagesEndRef} />
+              </div>
+              {(chatError || moderationError) && <p className={styles.chatError} role="alert">{chatError || moderationError}</p>}
+              {backendConfigured && userId && <form className={styles.chatForm} onSubmit={(event) => void sendChatMessage(event)}>
+                <input
+                  value={chatDraft}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                  maxLength={500}
+                  aria-label="Write a chat message"
+                  placeholder="Write a little message…"
+                />
+                <button type="submit" disabled={!chatDraft.trim() || chatBusy}>{chatBusy ? "…" : "Send"}</button>
+              </form>}
+            </section>
+          </div>
+          <div className={styles.topRight}>
+            <span className={styles.capacity}><b className={styles.vacancyCount}>{availableSeats}</b><span>SEATS<br />AVAILABLE</span></span>
+            {userId ? (
+              <button className={styles.signIn} type="button" onClick={() => void signOut()} disabled={signingOut}>
+                {signingOut ? "SIGNING OUT..." : "SIGN OUT"}
+              </button>
+            ) : (
+              <Link className={styles.signIn} href="/login">SIGN IN / SIGN UP</Link>
+            )}
+          </div>
         </div>
       </header>
 
@@ -713,6 +870,41 @@ export default function CafeRoom() {
         </svg>
         <div className={`${styles.planter} ${styles.planterLeft}`} aria-hidden="true"><Image src="/room/cafeViLight.png" alt="" fill sizes="(max-width: 480px) 72px, (max-width: 760px) 92px, 144px" /></div>
         <div className={`${styles.planter} ${styles.planterRight}`} aria-hidden="true"><Image src="/room/cafeViLight.png" alt="" fill sizes="(max-width: 480px) 72px, (max-width: 760px) 92px, 144px" /></div>
+        <svg className={`${styles.hangingPlant} ${styles.hangingPlantLeft}`} viewBox="0 0 100 150" aria-hidden="true">
+          <path d="M50 0v30M35 30h30" fill="none" stroke="#67452d" strokeWidth="3" strokeLinecap="round" />
+          <path d="M35 30h30l-5 24H40z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M43 52c-2 17-11 20-7 32 3 8 11 8 11 18M56 52c4 15 14 19 10 29-3 7-10 9-9 20M50 54v31" fill="none" stroke="#526742" strokeWidth="3" strokeLinecap="round" />
+          <path d="M39 69c-12-10-19 1-12 8 4 4 10 1 12-8Zm13 8c-13-8-18 4-10 10 5 3 10-1 10-10Zm14-6c12-10 19 1 12 8-4 4-10 1-12-8ZM49 97c-11-8-17 3-9 9 5 3 9-1 9-9Zm7-6c12-9 18 2 10 8-5 4-10 0-10-8Z" fill="#87966b" stroke="#40553a" strokeWidth="1.5" strokeLinejoin="round" />
+          <path d="M38 43h24" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        <svg className={`${styles.hangingPlant} ${styles.hangingPlantRight}`} viewBox="0 0 100 150" aria-hidden="true">
+          <path d="M50 0v30M35 30h30" fill="none" stroke="#67452d" strokeWidth="3" strokeLinecap="round" />
+          <path d="M35 30h30l-5 24H40z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M43 52c-2 17-11 20-7 32 3 8 11 8 11 18M56 52c4 15 14 19 10 29-3 7-10 9-9 20M50 54v31" fill="none" stroke="#526742" strokeWidth="3" strokeLinecap="round" />
+          <path d="M39 69c-12-10-19 1-12 8 4 4 10 1 12-8Zm13 8c-13-8-18 4-10 10 5 3 10-1 10-10Zm14-6c12-10 19 1 12 8-4 4-10 1-12-8ZM49 97c-11-8-17 3-9 9 5 3 9-1 9-9Zm7-6c12-9 18 2 10 8-5 4-10 0-10-8Z" fill="#87966b" stroke="#40553a" strokeWidth="1.5" strokeLinejoin="round" />
+          <path d="M38 43h24" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        <svg className={`${styles.cornerPlant} ${styles.cornerPlantLeft}`} viewBox="0 0 120 130" aria-hidden="true">
+          <path d="M23 84c-8-5-7-17 2-22-5-9 1-20 12-21 1-12 14-18 23-10 8-9 23-5 25 7 12-2 21 8 17 19 10 7 9 20-1 26 3 9-6 16-15 13H38c-8 3-17-3-15-12Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M31 57c-2-7 3-12 10-12 4-8 13-9 19-3 7-6 16-3 17 5 8-1 12 6 9 12 6 5 3 13-4 15H39c-7 0-11-8-8-14Z" fill="#a9bd83" />
+          <path d="M42 86h36l-5 34H47z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M40 86h40v8H40z" fill="#c18b5f" stroke="#67452d" strokeWidth="2" />
+          <path d="M49 103h22" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        <svg className={`${styles.cornerPlant} ${styles.cornerPlantRight}`} viewBox="0 0 120 130" aria-hidden="true">
+          <path d="M23 84c-8-5-7-17 2-22-5-9 1-20 12-21 1-12 14-18 23-10 8-9 23-5 25 7 12-2 21 8 17 19 10 7 9 20-1 26 3 9-6 16-15 13H38c-8 3-17-3-15-12Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M31 57c-2-7 3-12 10-12 4-8 13-9 19-3 7-6 16-3 17 5 8-1 12 6 9 12 6 5 3 13-4 15H39c-7 0-11-8-8-14Z" fill="#a9bd83" />
+          <path d="M42 86h36l-5 34H47z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M40 86h40v8H40z" fill="#c18b5f" stroke="#67452d" strokeWidth="2" />
+          <path d="M49 103h22" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+        <svg className={`${styles.cornerPlant} ${styles.cornerPlantBack}`} viewBox="0 0 120 130" aria-hidden="true">
+          <path d="M23 84c-8-5-7-17 2-22-5-9 1-20 12-21 1-12 14-18 23-10 8-9 23-5 25 7 12-2 21 8 17 19 10 7 9 20-1 26 3 9-6 16-15 13H38c-8 3-17-3-15-12Z" fill="#87966b" stroke="#40553a" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M31 57c-2-7 3-12 10-12 4-8 13-9 19-3 7-6 16-3 17 5 8-1 12 6 9 12 6 5 3 13-4 15H39c-7 0-11-8-8-14Z" fill="#a9bd83" />
+          <path d="M42 86h36l-5 34H47z" fill="#a8754e" stroke="#67452d" strokeWidth="2" strokeLinejoin="round" />
+          <path d="M40 86h40v8H40z" fill="#c18b5f" stroke="#67452d" strokeWidth="2" />
+          <path d="M49 103h22" stroke="#d7a66e" strokeWidth="2" strokeLinecap="round" />
+        </svg>
         <div className={styles.tables}>
           {roomTables.map((table) => (
             <div key={table.id} className={`${styles.tableGroup} ${styles[`table${table.type}`]} ${styles[`position${table.position}`]}`}>
@@ -754,71 +946,6 @@ export default function CafeRoom() {
         </div>
       </section>
       </div>
-      <div className={styles.chatDock}>
-        <button
-          type="button"
-          className={`${styles.chatTab} ${chatOpen ? styles.chatTabOpen : ""}`}
-          onClick={() => setChatOpen((open) => !open)}
-          aria-expanded={chatOpen}
-          aria-controls="cafe-chat-panel"
-        >
-          Chatroom
-        </button>
-        <section className={styles.chatPanel} id="cafe-chat-panel" aria-label="Chatroom" hidden={!chatOpen}>
-          <header className={styles.chatHeader}>
-            <div>
-              <h2>Chatroom</h2>
-              <p>A cozy little place to say hello.</p>
-            </div>
-            <button type="button" className={styles.chatClose} onClick={() => setChatOpen(false)} aria-label="Close chatroom">×</button>
-          </header>
-          <p className={styles.chatModerationNotice}>Chats will be moderated and deleted if inappropriate, be mindful!</p>
-          <div className={styles.chatMessages} role="log" aria-live="polite" aria-relevant="additions text">
-            {!backendConfigured ? (
-              <p className={styles.chatNotice}>Connect the café account to join the live chat.</p>
-            ) : !backendReady ? (
-              <p className={styles.chatNotice}>Opening the chat…</p>
-            ) : !userId ? (
-              <p className={styles.chatNotice}>Sign in to join the conversation.</p>
-            ) : chatLoading && chatMessages.length === 0 ? (
-              <p className={styles.chatNotice}>Gathering the latest messages…</p>
-            ) : chatMessages.length ? (
-              chatMessages.map((message) => {
-                const ownMessage = message.user_id === userId;
-                return <div key={message.id} className={`${styles.chatMessage} ${ownMessage ? styles.chatOwn : styles.chatOther}`}>
-                  <span className={styles.chatUsername}>{message.username}</span>
-                  <div className={styles.chatBubbleRow}>
-                    <p className={styles.chatBubble}>{message.content}</p>
-                    {isModerator && <button
-                      type="button"
-                      className={styles.chatDelete}
-                      disabled={deletingChatMessageId !== null}
-                      onClick={() => void deleteChatMessage(message.id)}
-                      aria-label={`Delete message from ${message.username}`}
-                      title={`Delete message from ${message.username}`}
-                    >×</button>}
-                  </div>
-                </div>;
-              })
-            ) : (
-              <p className={styles.chatNotice}>It&apos;s quiet here. Say hello!</p>
-            )}
-            <div ref={chatMessagesEndRef} />
-          </div>
-          {(chatError || moderationError) && <p className={styles.chatError} role="alert">{chatError || moderationError}</p>}
-          {backendConfigured && userId && <form className={styles.chatForm} onSubmit={(event) => void sendChatMessage(event)}>
-            <input
-              value={chatDraft}
-              onChange={(event) => setChatDraft(event.target.value)}
-              maxLength={500}
-              aria-label="Write a chat message"
-              placeholder="Write a little message…"
-            />
-            <button type="submit" disabled={!chatDraft.trim() || chatBusy}>{chatBusy ? "…" : "Send"}</button>
-          </form>}
-        </section>
-      </div>
-
       <div className={styles.ambienceControl}>
         <audio ref={ambienceAudioRef} src={ambienceOptions.find((option) => option.id === ambienceTrack)?.src ?? ambienceOptions[0].src} loop preload="none" onPlay={() => setAmbiencePlaying(true)} onPause={() => setAmbiencePlaying(false)} onError={() => setAmbienceError(true)} />
         <div className={styles.ambienceSelectLabel} ref={ambienceSelectRef}>
@@ -862,6 +989,66 @@ export default function CafeRoom() {
       {availableSeats === 0
         ? <p className={styles.roomFullNotice} role="status" aria-live="polite">The room is full, please come back another time</p>
         : roomMessage && <p className={styles.roomMessage} role="status">{roomMessage}</p>}
+
+      {welcomeNoticeOpen && <div className={styles.welcomeBackdrop}>
+        <div className={`${styles.welcomeTreat} ${styles.welcomeDrink}`} aria-hidden="true">
+          <svg viewBox="0 0 64 72">
+            <path d="M17 25h30l-3 36H20z" fill="#f2dfbb" stroke="#67452d" strokeWidth="3" strokeLinejoin="round" />
+            <path d="M47 31h5a8 8 0 0 1 0 16h-7" fill="none" stroke="#67452d" strokeWidth="3" />
+            <path d="M23 18c-4-5 4-6 0-11m12 11c-4-5 4-6 0-11m12 11c-4-5 4-6 0-11" fill="none" stroke="#a8754e" strokeWidth="3" strokeLinecap="round" />
+            <path d="M21 34h23" stroke="#a8754e" strokeWidth="4" strokeLinecap="round" />
+            <path d="M23 55h19" stroke="#c18b5f" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
+        <div className={`${styles.welcomeTreat} ${styles.welcomePastry}`} aria-hidden="true">
+          <svg viewBox="0 0 76 58">
+            <path d="M10 40c2-16 13-27 28-27s26 11 28 27c-7 6-16 9-28 9S17 46 10 40Z" fill="#d5a15f" stroke="#67452d" strokeWidth="3" strokeLinejoin="round" />
+            <path d="M22 39c1-10 7-18 16-21m0 22c1-12 6-20 14-22m-4 24c2-8 6-13 12-15" fill="none" stroke="#f2d69a" strokeWidth="4" strokeLinecap="round" />
+            <path d="M18 45c11 5 29 6 41 0" fill="none" stroke="#a8754e" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
+        <section className={styles.welcomeNotice} role="dialog" aria-modal="true" aria-labelledby="welcomeTitle" aria-describedby="welcomeDescription">
+          <p className={styles.welcomeEyebrow}>WELCOME TO CAFE-VI</p>
+          <h1 id="welcomeTitle">A cozy place to focus together.</h1>
+          <p id="welcomeDescription">Cafe-Vi is a shared virtual café for focused work sessions. Pick a seat, set a task and timer, and settle in alongside other café guests.</p>
+          <div className={styles.welcomeGuides}>
+            <div>
+              <div className={styles.welcomeGuideVisual}>
+                <svg viewBox="0 0 48 48" aria-hidden="true">
+                  <path d="M12 30h24v7H12zM16 30V19h16v11M15 37v4m18-4v4" />
+                  <path d="M37 10v10m-5-5h10" />
+                </svg>
+                <span className={styles.welcomeNumber}>01</span>
+              </div>
+              <p><b>Claim a seat</b>Choose any open seat marked with a +. Sign in or create an account first, then enter your task and focus duration.</p>
+            </div>
+            <div>
+              <div className={styles.welcomeGuideVisual}>
+                <svg viewBox="0 0 48 48" aria-hidden="true">
+                  <circle cx="24" cy="17" r="8" />
+                  <path d="M9 41c1-8 7-13 15-13s14 5 15 13z" />
+                  <circle cx="37" cy="11" r="6" />
+                  <path d="m34.5 11 1.7 1.7 3.4-3.5" />
+                </svg>
+                <span className={styles.welcomeNumber}>02</span>
+              </div>
+              <p><b>Edit your profile</b>Use the profile icon in the upper-left corner to change your username or avatar. Sign in to save your profile.</p>
+            </div>
+            <div>
+              <div className={styles.welcomeGuideVisual}>
+                <svg viewBox="0 0 48 48" aria-hidden="true">
+                  <circle cx="24" cy="25" r="16" />
+                  <path d="M24 15v11l8 5M18 5h12M24 5v4" />
+                  <path d="M36 9l3 3" />
+                </svg>
+                <span className={styles.welcomeNumber}>03</span>
+              </div>
+              <p><b>Focus together</b>Work on your own task, keep your session timer running, and enjoy the company of others in the room.</p>
+            </div>
+          </div>
+          <button className={styles.welcomeDismiss} type="button" onClick={() => void dismissWelcomeNotice()} disabled={welcomeNoticeBusy} autoFocus>{welcomeNoticeBusy ? "SAVING..." : "LET'S GET STARTED"}</button>
+        </section>
+      </div>}
 
       {selected !== null && <div className={styles.backdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) void cancelSeatClaim(); }}>
         <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="dialogTitle">

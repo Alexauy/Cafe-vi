@@ -172,14 +172,6 @@ export default function ProfilePage() {
     setMessage(error ? userFacingError(error, "We couldn't save your profile. Please try again.") : "Your profile is saved.");
   }
 
-  async function signOut() {
-    setBusy(true);
-    const { error } = await createClient().auth.signOut();
-    setBusy(false);
-    setMessage(error ? userFacingError(error, "We couldn't sign you out. Please try again.") : "You're signed out.");
-    setUserId(null);
-  }
-
   function changeMonth(amount: number) {
     const nextMonth = shiftMonth(visibleMonth, amount);
     setVisibleMonth(nextMonth);
@@ -278,7 +270,6 @@ export default function ProfilePage() {
                 {message && <p className={styles.status} role="status">{message}</p>}
                 <button className={styles.save} disabled={busy || !username.trim()}>{busy ? "SAVING…" : "SAVE PROFILE"}</button>
               </form>
-              <button className={styles.signOut} disabled={busy} onClick={() => void signOut()}>Sign out</button>
             </section>
 
             <section className={styles.activityPanel} aria-labelledby="activityTitle">

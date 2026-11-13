@@ -1,9 +1,8 @@
 .page { width:min(100%,1680px); min-height:100svh; margin:0 auto; padding:0 4% 48px; }
 .header { position:relative; isolation:isolate; height:var(--cafe-topbar-height); display:flex; align-items:center; justify-content:flex-end; }
-.header::before { content:""; position:absolute; z-index:-1; inset:0 auto 0 50%; width:100vw; transform:translateX(-50%); background:#eee3cb; border-bottom:1px solid var(--line); }
 .brand { position:absolute; z-index:1; top:var(--cafe-sign-top); left:var(--cafe-sign-left); display:block; width:var(--cafe-sign-width); height:auto; object-fit:contain; }
 .back { display:inline-flex; align-items:center; gap:9px; padding:9px 13px; border:1px solid #c4a57b; border-radius:999px; background:#f7edda; color:var(--green); font:10px var(--mono); letter-spacing:.08em; text-decoration:none; transition:transform .16s ease,background .16s ease; }
-.back span { font:18px/1 var(--sans); }
+.back svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
 .back:hover { transform:translateY(-2px) rotate(-1deg); background:#fff8e8; }
 .card { position:relative; width:min(100%,480px); margin:clamp(130px,12vh,150px) auto 52px; padding:clamp(28px,6vw,50px); border:1px solid #b98b5b; border-radius:16px 26px 17px 23px; background:var(--paper); box-shadow:7px 8px 0 #67452d,0 18px 48px #67452d20; }
 .card::before { content:"✳"; position:absolute; top:-23px; right:27px; color:#a94535; font:32px/1 var(--serif); transform:rotate(12deg); }

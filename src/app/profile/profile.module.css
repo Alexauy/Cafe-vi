@@ -25,10 +25,8 @@
 .save,.actionLink { display:inline-flex; justify-content:center; align-items:center; min-height:48px; padding:0 18px; border:1px solid #354635; border-radius:7px 12px 7px 10px; background:var(--green); color:#fffdf8; font:10px var(--mono); letter-spacing:.11em; text-decoration:none; cursor:pointer; box-shadow:0 3px 0 #354635; transition:transform .15s ease,box-shadow .15s ease,background .15s ease; }
 .save:hover:not(:disabled),.actionLink:hover { transform:translateY(-2px); box-shadow:0 5px 0 #354635; background:#607649; }
 .save:disabled { opacity:.55; cursor:not-allowed; }
-.signOut { display:block; margin:21px auto 0; padding:5px; border:0; background:none; color:#52653b; font-size:12px; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }
-.signOut:disabled { opacity:.5; cursor:not-allowed; }
 .status { margin:0; padding:11px 13px; border:1px solid #e2d2a7; border-radius:8px 12px 8px 11px; background:#f7efd9; color:#70583d !important; font-size:12px !important; line-height:1.55 !important; }
-.backLink:focus-visible,.avatar:focus-visible,.save:focus-visible,.actionLink:focus-visible,.signOut:focus-visible { outline:3px solid #a94535; outline-offset:3px; }
+.backLink:focus-visible,.avatar:focus-visible,.save:focus-visible,.actionLink:focus-visible { outline:3px solid #a94535; outline-offset:3px; }
 .dashboardCard { width:min(100%,1120px); }
 .profileDashboard { display:grid; grid-template-columns:minmax(230px,.78fr) minmax(0,1.5fr); gap:clamp(24px,4vw,48px); align-items:start; }
 .accountPanel { min-width:0; padding-right:clamp(18px,3vw,34px); border-right:1px solid #d9c8a7; }

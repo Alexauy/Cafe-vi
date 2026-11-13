@@ -57,14 +57,19 @@ export default function LoginPage() {
 
   return (
     <main className={styles.page}>
-      <header className={styles.header}>
+      <header className={`${styles.header} cafe-banner`}>
         <Image className={styles.brand} src="/brand/cafeViSign.png" alt="Cafe-Vi" width={800} height={300} priority />
-        <Link className={styles.back} href="/"><span aria-hidden="true">â†</span> BACK TO THE ROOM</Link>
+        <Link className={styles.back} href="/">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5m7 7-7-7 7-7" />
+          </svg>
+          BACK TO THE ROOM
+        </Link>
       </header>
       <section className={styles.card}>
         <p className={styles.eyebrow}>YOUR INTERNET HANGOUT</p>
         <h1>{mode === "sign-in" ? "Welcome back." : mode === "sign-up" ? "Come on in." : "Reset your password."}</h1>
-        <p className={styles.intro}>{mode === "reset" ? "Enter the email for your cafÃ© account and weâ€™ll send a reset link if itâ€™s registered." : "Sign in to keep your seat, avatar, and focus sessions in sync."}</p>
+        <p className={styles.intro}>{mode === "reset" ? "Enter the email for your café account and we’ll send a reset link if it’s registered." : "Sign in to keep your seat, avatar, and focus sessions in sync."}</p>
         {!configured && <p className={styles.notice}>Sign-in and saved profiles aren&apos;t connected yet. You can still explore the cafÃ© in preview mode.</p>}
         <form onSubmit={submit}>
           <label>Email<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
