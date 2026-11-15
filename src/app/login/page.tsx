@@ -38,7 +38,12 @@ export default function LoginPage() {
         router.replace("/");
         router.refresh();
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const emailRedirectTo = new URL("/auth/callback", window.location.origin).toString();
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo },
+        });
         if (error) throw error;
         if (data.session) {
           router.replace("/");

@@ -43,7 +43,7 @@ These decisions establish a clear product direction: a polished, shared digital 
 | Decision | Final requirement |
 |---|---|
 | Room capacity | One shared room with 20 designated seats. |
-| Seat release | Disconnecting users' seats are released automatically after a short grace period. |
+| Seat release | Explicit departure releases a seat immediately when the request succeeds. Missed-heartbeat cleanup allows a 2-minute timeout to avoid ejecting users due to normal browser background throttling. |
 | Timer behavior | Fixed-duration countdown; a new session is started after completion. |
 | Task visibility | Task name, remaining time, and session status are visible to everyone in the room. |
 | Art direction | Stylized minimalism, with clean layouts, distinctive avatars, restrained decoration, and a cohesive color palette. |
@@ -60,14 +60,15 @@ Requirements:
 - **FR-02.2:** Each seat has an available, occupied, or temporarily reserved state.
 - **FR-02.3:** Users must claim an available seat before starting a work session.
 - **FR-02.4:** Seat claims are validated atomically by the backend to prevent double occupancy.
-- **FR-02.12:** If multiple users submit claims for the same seat within the 250 ms arbitration window, reject all those competing claims and show each claimant “failed to claim seat, please try again.”
 - **FR-02.5:** All connected users see the same seat occupancy and associated avatar.
 - **FR-02.6:** When all 20 seats are occupied or reserved, additional users receive a clear room-full message.
-- **FR-02.7:** When a user disconnects unexpectedly, the system temporarily preserves their seat during a reconnection grace period.
-- **FR-02.8:** If the user does not reconnect within the grace period, the seat is released and becomes available to others.
+- **FR-02.7:** When a user disconnects unexpectedly, the system temporarily preserves their seat during the configured reconnection grace period.
+- **FR-02.8:** If the user does not reconnect within the grace period, the seat is released and becomes available to others. Missed-heartbeat cleanup allows two minutes before considering an occupied seat stale.
 - **FR-02.9:** A user who reconnects within the grace period resumes their existing session when it remains valid.
 - **FR-02.10:** Users can explicitly leave the room, releasing their seats immediately.
 - **FR-02.11:** Explicit sign-out and a normal page-close event end the user's active work session and release their seat immediately. Unexpected disconnections continue to use the reconnect grace period.
+- **FR-02.12:** If multiple users submit claims for the same seat within the 250 ms arbitration window, reject all those competing claims and show each claimant “failed to claim seat, please try again.”
+- **FR-02.13:** A missed heartbeat is not treated as a disconnected seat until two minutes have elapsed, so a background-throttled tab does not quickly lose its seat.
 
 **Acceptance criteria**
 
@@ -76,7 +77,7 @@ Requirements:
 - Competing claims for the same seat received within 250 ms all fail with the same user-facing retry notice; no claimant receives that seat from the collision.
 - The room never allocates more than 20 seats simultaneously.
 - A user cannot start a session without a confirmed seat assignment.
-- A disconnected user's seat becomes available after the configured grace period.
+- A page-close release frees the seat promptly when its request succeeds; missed-heartbeat cleanup frees a stale occupied seat after two minutes plus the scheduled cleanup interval.
 - A returning user can reclaim their existing seat during the grace period if it has not been invalidated.
 - Explicit sign-out ends any active timer and frees the seat before the current browser session is signed out.
 - A normal page-close event attempts to end the active timer, free the seat, and sign out the current browser session; stale-seat cleanup remains the fallback if the browser or network prevents the exit requests.
@@ -312,7 +313,7 @@ The original success metrics remain relevant, but the multi-user tests should ex
 | Full-room occupancy | All 20 seats can be claimed by 20 distinct users. |
 | Capacity enforcement | A user cannot claim beyond configured room capacity. **Verified at capacity 2** (user-reported); the 20-seat/21st-user case remains untested. |
 | Concurrent seat claims | Same-seat claims within the 250 ms arbitration window both fail with the retry notice. **Verified by the user.** |
-| Disconnect cleanup | A disconnected user retains their seat during the grace period and loses it after expiration if they do not reconnect. |
+| Disconnect cleanup | Explicit leave/page exit releases promptly when possible; missed-heartbeat cleanup releases after two minutes plus the scheduled cleanup interval. |
 | Reconnection | A user reconnecting within the grace period can recover their valid session. |
 | Public task display | Every connected occupant can see each active task name, countdown, and status. **User reports task/avatar updates synchronize across users.** |
 | Timer persistence | Refreshing or reconnecting does not reset an active session. |
@@ -323,7 +324,7 @@ The original success metrics remain relevant, but the multi-user tests should ex
 
 For the initial demo, use separate browser profiles or devices to test concurrent users. Simulated users can help test the full room layout and load, but they do not replace real multi-client testing of authentication, seat allocation, and synchronization.
 
-**Current verification status (2026-11-14):** Three simultaneous test accounts have been exercised. The user reports that two-seat capacity/room-full behavior, same-seat race rejection within 250 ms, and task/avatar updates across users have passed against their configured Supabase project. The user has observed that diary entries are limited to their owner; direct cross-account authorization tests have not been performed. Adjustable audio is implemented. Filling all 20 seats with 20 distinct accounts, testing a 21st account against capacity 20, and sustained 20-user performance remain unverified.
+**Current verification status (2026-11-14):** Three simultaneous test accounts have been exercised. The user reports that two-seat capacity/room-full behavior, same-seat race rejection within 250 ms, and task/avatar updates across users have passed against their configured Supabase project. The user has observed that diary entries are limited to their owner; direct cross-account authorization tests have not been performed. Adjustable audio is implemented. A two-minute missed-heartbeat timeout has been added to reduce evictions caused by background browser throttling; it still needs production verification. Sign-up email redirects now target the origin where the account was created; production confirmation links require the deployed callback URL to be allowlisted in Supabase Auth. Filling all 20 seats with 20 distinct accounts, testing a 21st account against capacity 20, and sustained 20-user performance remain unverified.
 
 ## 7. Revised implementation priorities
 
