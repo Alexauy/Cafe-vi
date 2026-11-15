@@ -56,6 +56,8 @@ Without configuration, the room remains a local UI preview and its sample state 
 
 Supabase may rate-limit confirmation and password-reset email sends. If the app reports “Too many attempts,” stop retrying and wait for Supabase's email-send limit to reset. For an existing unconfirmed account, use the confirmation email resend option (if enabled) after the cooldown; attempting sign-up again for an already-registered address may not send another confirmation email. Previously sent email links keep their original redirect and must be resent after the hosted redirect configuration is corrected.
 
+Legacy password-recovery links that land on the hosted home page with a Supabase `type=recovery` URL fragment are forwarded to `/reset-password` after the browser restores the recovery session. If a link is expired, already used, or arrives without a valid recovery token, request a fresh reset link after the email rate limit clears.
+
 ### Temporary two-seat capacity test
 
 Only do this in a disposable local or test Supabase project, never while real users may be in the room. After applying all migrations, verify the room is empty:

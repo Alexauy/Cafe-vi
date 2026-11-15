@@ -194,6 +194,18 @@ export default function CafeRoom() {
     ? "Sign in or make an account to claim a seat!"
     : "");
 
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    if (fragment.get("type") !== "recovery") return;
+    let active = true;
+    void createClient().auth.getSession().catch((error: unknown) => {
+      console.error("Could not restore the password recovery session from the email link:", error);
+    }).finally(() => {
+      if (active) window.location.replace(`/reset-password${window.location.search}${window.location.hash}`);
+    });
+    return () => { active = false; };
+  }, []);
+
   const dismissWelcomeNotice = useCallback(() => {
     setWelcomeNoticeOpen(false);
   }, []);
