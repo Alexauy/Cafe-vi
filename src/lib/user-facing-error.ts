@@ -23,7 +23,9 @@ export function userFacingError(error: unknown, fallback = "Something went wrong
     return "Chat moderation hasn't been set up in this Supabase project yet. Apply the chat moderators migration, then reload.";
   }
   if (normalized.includes("already_seated")) return "You're already at a table. Leave your current seat before choosing another.";
-  if (normalized.includes("seat_unavailable")) return "That seat was just taken. Please choose another open seat.";
+  if (normalized.includes("seat_claim_collision") || normalized.includes("seat_unavailable")) {
+    return "failed to claim seat, please try again.";
+  }
   if (normalized.includes("authentication_required") || normalized.includes("jwt expired") || normalized.includes("auth session missing")) {
     return "Sign in or make an account to claim a seat!";
   }

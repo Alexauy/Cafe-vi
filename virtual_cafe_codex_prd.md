@@ -60,6 +60,7 @@ Requirements:
 - **FR-02.2:** Each seat has an available, occupied, or temporarily reserved state.
 - **FR-02.3:** Users must claim an available seat before starting a work session.
 - **FR-02.4:** Seat claims are validated atomically by the backend to prevent double occupancy.
+- **FR-02.12:** If multiple users submit claims for the same seat within the 250 ms arbitration window, reject all those competing claims and show each claimant “failed to claim seat, please try again.”
 - **FR-02.5:** All connected users see the same seat occupancy and associated avatar.
 - **FR-02.6:** When all 20 seats are occupied or reserved, additional users receive a clear room-full message.
 - **FR-02.7:** When a user disconnects unexpectedly, the system temporarily preserves their seat during a reconnection grace period.
@@ -72,6 +73,7 @@ Requirements:
 
 - Two or more independent browser sessions see consistent room occupancy.
 - No two users can successfully claim the same seat.
+- Competing claims for the same seat received within 250 ms all fail with the same user-facing retry notice; no claimant receives that seat from the collision.
 - The room never allocates more than 20 seats simultaneously.
 - A user cannot start a session without a confirmed seat assignment.
 - A disconnected user's seat becomes available after the configured grace period.
@@ -308,19 +310,20 @@ The original success metrics remain relevant, but the multi-user tests should ex
 | Test | Passing condition |
 |---|---|
 | Full-room occupancy | All 20 seats can be claimed by 20 distinct users. |
-| Capacity enforcement | A 21st user cannot claim an additional seat. |
-| Concurrent seat claims | Simultaneous attempts cannot assign one seat to multiple users. |
+| Capacity enforcement | A user cannot claim beyond configured room capacity. **Verified at capacity 2** (user-reported); the 20-seat/21st-user case remains untested. |
+| Concurrent seat claims | Same-seat claims within the 250 ms arbitration window both fail with the retry notice. **Verified by the user.** |
 | Disconnect cleanup | A disconnected user retains their seat during the grace period and loses it after expiration if they do not reconnect. |
 | Reconnection | A user reconnecting within the grace period can recover their valid session. |
-| Public task display | Every connected occupant can see each active task name, countdown, and status. |
+| Public task display | Every connected occupant can see each active task name, countdown, and status. **User reports task/avatar updates synchronize across users.** |
 | Timer persistence | Refreshing or reconnecting does not reset an active session. |
 | Session completion | A finished timer transitions to completion without automatically starting another session. |
-| Visual density | Twenty occupied seats remain recognizable and task information remains accessible. |
-| Audio independence | Audio controls work regardless of room occupancy or session changes. |
+| Visual density | Twenty occupied seats remain recognizable and task information remains accessible. **User considers current hover-to-reveal task behavior sufficient; 20-seat visual check remains optional confirmation.** |
+| Audio independence | Audio controls work regardless of room occupancy or session changes. **Adjustable audio is implemented per user report and code inspection.** |
+| Diary privacy | Users can access only their own diary. **User has observed owner-only visibility; direct cross-account access remains unverified.** |
 
 For the initial demo, use separate browser profiles or devices to test concurrent users. Simulated users can help test the full room layout and load, but they do not replace real multi-client testing of authentication, seat allocation, and synchronization.
 
-**Current verification status:** Three simultaneous test accounts have been exercised. The 20-user full-room, capacity, and concurrent-claim acceptance tests remain unverified and require a configured Supabase test project plus 20 independent signed-in sessions (or a dedicated test harness that creates equivalent isolated sessions).
+**Current verification status (2026-11-14):** Three simultaneous test accounts have been exercised. The user reports that two-seat capacity/room-full behavior, same-seat race rejection within 250 ms, and task/avatar updates across users have passed against their configured Supabase project. The user has observed that diary entries are limited to their owner; direct cross-account authorization tests have not been performed. Adjustable audio is implemented. Filling all 20 seats with 20 distinct accounts, testing a 21st account against capacity 20, and sustained 20-user performance remain unverified.
 
 ## 7. Revised implementation priorities
 
@@ -331,7 +334,7 @@ For the initial demo, use separate browser profiles or devices to test concurren
 5. **Implement fixed work sessions.** Add task creation, authoritative timestamps, public task cards, cancellation, and completion.
 6. **Add real-time synchronization.** Verify that occupancy and task states remain consistent across multiple browsers.
 7. **Integrate ambience and visual polish.** Add the looping audio track, minimalist custom avatars, and subtle environmental details.
-8. **Run full-room acceptance tests.** Test 20 occupants, capacity overflow, simultaneous seat claims, network interruptions, timer expiration, and readability.
+8. **Run full-room acceptance tests.** Test 20 occupants, the 21st-user overflow at capacity 20, network interruptions, timer expiration, and readability. The two-seat overflow and simultaneous same-seat claim tests are user-reported as passing.
 
 ## 8. Updated release criteria
 

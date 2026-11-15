@@ -154,6 +154,7 @@ export default function CafeRoom() {
   const [signingOut, setSigningOut] = useState(false);
   const [backendReady, setBackendReady] = useState(!backendConfigured);
   const [roomId, setRoomId] = useState<string | null>(null);
+  const [roomCapacity, setRoomCapacity] = useState(20);
   const [busy, setBusy] = useState(false);
   const [roomMessage, setRoomMessage] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
@@ -188,7 +189,7 @@ export default function CafeRoom() {
   const [ambienceError, setAmbienceError] = useState(false);
   const [now, setNow] = useState(Date.now());
   const occupied = Object.keys(occupants).length;
-  const availableSeats = 20 - occupied;
+  const availableSeats = Math.max(0, roomCapacity - occupied);
   const displayedRoomMessage = roomMessage || (backendConfigured && backendReady && !userId
     ? "Sign in or make an account to claim a seat!"
     : "");
@@ -397,6 +398,7 @@ export default function CafeRoom() {
     let visibilityChangeHandler: (() => void) | null = null;
     let onlineHandler: (() => void) | null = null;
     let currentRoomId: string | null = null;
+    let currentRoomCapacity = 20;
     let authenticated = false;
     let exitAccessToken: string | null = null;
     let heartbeatWarningShown = false;
@@ -457,7 +459,7 @@ export default function CafeRoom() {
       }
 
       const [seatResult, profileResult, sessionResult] = await Promise.all([
-        supabase.from("seats").select("seat_no,state,occupant_id").eq("room_id", roomId),
+        supabase.from("seats").select("seat_no,state,occupant_id").eq("room_id", roomId).lte("seat_no", currentRoomCapacity),
         supabase.from("profiles").select("id,username,avatar_id"),
         supabase.from("work_sessions").select("seat_no,user_id,task_name,ends_at,status,finished_at")
           .eq("room_id", roomId)
@@ -511,13 +513,7 @@ export default function CafeRoom() {
         authenticated = false;
         currentUserIdRef.current = null;
         setUserId(null);
-        await refreshRoom("");
-        if (!active) return;
-        startGuestRefresh("");
-        setBackendReady(true);
-        return;
-      }
-      if (userData.user) {
+      } else if (userData.user) {
         authenticated = true;
         currentUserIdRef.current = userData.user.id;
         setUserId(userData.user.id);
@@ -546,15 +542,10 @@ export default function CafeRoom() {
         }
       }
 
-      if (!userData.user) {
-        await refreshRoom("");
-        if (!active) return;
-        startGuestRefresh("");
-        setBackendReady(true);
-        return;
-      }
-
-      const { data: room, error: roomError } = await supabase.from("rooms").select("id").eq("slug", "cafe-vi").single();
+      const { data: room, error: roomError } = await supabase.from("rooms")
+        .select("id,capacity")
+        .eq("slug", "cafe-vi")
+        .single();
       if (!active) return;
       if (roomError || !room) {
         setRoomMessage(roomError ? userFacingError(roomError, "The café room isn't ready yet. Please try again later.") : "The café room isn't ready yet. Please try again later.");
@@ -563,12 +554,19 @@ export default function CafeRoom() {
       }
 
       currentRoomId = room.id;
+      currentRoomCapacity = room.capacity;
       setRoomId(room.id);
+      setRoomCapacity(room.capacity);
+      if (!authenticated) {
+        await refreshRoom(room.id);
+        if (!active) return;
+        startGuestRefresh(room.id);
+        setBackendReady(true);
+        return;
+      }
+
       await refreshRoom(room.id);
       if (!active) return;
-      if (!authenticated) {
-        startGuestRefresh(room.id);
-      }
       roomChannel = supabase.channel(`cafe-room:${room.id}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "seats", filter: `room_id=eq.${room.id}` }, () => { void refreshRoom(room.id); })
         .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => { void refreshRoom(room.id); })
@@ -734,11 +732,29 @@ export default function CafeRoom() {
     if (backendConfigured) {
       if (!backendReady || !userId) return;
       setBusy(true);
-      const { error } = await createClient().rpc("claim_seat", { p_seat_no: seat });
-      setBusy(false);
-      if (error) {
-        setRoomMessage(userFacingError(error, "We couldn't save that seat. Please try another."));
+      try {
+        const supabase = createClient();
+        const { data: attemptId, error: attemptError } = await supabase.rpc("begin_seat_claim", { p_seat_no: seat });
+        if (attemptError) {
+          setRoomMessage(userFacingError(attemptError, "failed to claim seat, please try again."));
+          return;
+        }
+        if (typeof attemptId !== "string") {
+          setRoomMessage("failed to claim seat, please try again.");
+          return;
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        const { error } = await supabase.rpc("claim_seat", { p_seat_no: seat, p_attempt_id: attemptId });
+        if (error) {
+          setRoomMessage(userFacingError(error, "failed to claim seat, please try again."));
+          return;
+        }
+      } catch (error) {
+        setRoomMessage(userFacingError(error, "failed to claim seat, please try again."));
         return;
+      } finally {
+        setBusy(false);
       }
     }
     setSelected(seat);
@@ -1138,7 +1154,7 @@ export default function CafeRoom() {
           {roomTables.map((table) => (
             <div key={table.id} className={`${styles.tableGroup} ${styles[`table${table.type}`]} ${styles[`position${table.position}`]}`}>
               <div className={styles.table}><span>✿</span><span className={styles.tableCup}>◌</span></div>
-              {table.seatIds.map((seat, seatIndex) => {
+              {table.seatIds.filter((seat) => seat <= roomCapacity).map((seat, seatIndex) => {
                 const occupant = occupants[seat];
                   const isOwnTask = Boolean(occupant && (backendConfigured ? occupant.userId === userId : seat === localSeat));
                   const taskCardVisible = isOwnTask || showInitialTaskCards || revealedTaskSeat === seat;
@@ -1222,8 +1238,8 @@ export default function CafeRoom() {
         <div className={styles.emojiButtons}>{reactionOptions.map((emoji) => <button key={emoji.id} type="button" onClick={() => sendReaction(emoji.id)} disabled={reactionCooldown || (backendConfigured ? !Object.values(occupants).some((occupant) => occupant.userId === userId) : localSeat === null)} aria-label={emoji.label} title={reactionCooldown ? "Please wait a moment before sending another reaction" : emoji.label}><Image src={emoji.src} alt="" width={38} height={38} /></button>)}</div>
       </aside>
 
-      {availableSeats === 0
-        ? <p className={styles.roomFullNotice} role="status" aria-live="polite">The room is full, please come back another time</p>
+      {availableSeats <= 0
+        ? <p className={styles.roomFullNotice} role="status" aria-live="polite">The room is now full</p>
         : displayedRoomMessage && <p className={styles.roomMessage} role="status">{displayedRoomMessage}</p>}
 
       {welcomeNoticeOpen && <div className={styles.welcomeBackdrop}>
