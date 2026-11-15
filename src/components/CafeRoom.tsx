@@ -37,7 +37,7 @@ type Occupant = {
 
 type ProfileRow = { id: string; username: string; avatar_id: string };
 type SeatRow = { seat_no: number; state: string; occupant_id: string | null };
-type SessionRow = { seat_no: number; task_name: string; ends_at: string; status: "active" | "completed" | "cancelled"; finished_at: string | null };
+type SessionRow = { seat_no: number; user_id: string; task_name: string; ends_at: string; status: "active" | "completed" | "cancelled"; finished_at: string | null };
 type ChatMessage = { id: string; room_id: string; user_id: string; content: string; created_at: string; username: string };
 const reactionOptions = [
   { id: "thumb", src: "/emojis/thumbEmoji.png", label: "Thumbs up" },
@@ -143,6 +143,8 @@ function CookieIcon() {
 export default function CafeRoom() {
   const [occupants, setOccupants] = useState<Record<number, Occupant>>(() => backendConfigured ? {} : demoOccupants);
   const [selected, setSelected] = useState<number | null>(null);
+  const [completionPromptSeat, setCompletionPromptSeat] = useState<number | null>(null);
+  const [retakingTask, setRetakingTask] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState<string>(avatarOptions[1].src);
   const [name, setName] = useState("Alex");
   const [task, setTask] = useState("");
@@ -347,6 +349,7 @@ export default function CafeRoom() {
       let changed = false;
       const next = { ...current };
       for (const [seat, occupant] of Object.entries(current)) {
+        if (occupant.userId === userId) continue;
         if (occupant.task && occupant.endsAt && now - Date.parse(occupant.endsAt) > 12_000) {
           next[Number(seat)] = { ...occupant, task: undefined, endsAt: undefined, status: undefined };
           changed = true;
@@ -354,7 +357,32 @@ export default function CafeRoom() {
       }
       return changed ? next : current;
     });
-  }, [now]);
+  }, [now, userId]);
+
+  useEffect(() => {
+    if (selected !== null) return;
+    const completedSeat = Object.entries(occupants).find(([seat, occupant]) => {
+      const isOwnSeat = backendConfigured ? occupant.userId === userId : Number(seat) === localSeat;
+      return isOwnSeat
+        && Boolean(occupant.task && occupant.endsAt)
+        && (occupant.status === "completed" || Date.parse(occupant.endsAt!) <= now);
+    });
+
+    if (completedSeat) {
+      setCompletionPromptSeat(Number(completedSeat[0]));
+    } else if (completionPromptSeat !== null) {
+      const currentPromptOccupant = occupants[completionPromptSeat];
+      const isOwnSeat = currentPromptOccupant
+        && (backendConfigured
+          ? currentPromptOccupant.userId === userId
+          : completionPromptSeat === localSeat);
+      const taskIsStillComplete = isOwnSeat
+        && currentPromptOccupant.task
+        && currentPromptOccupant.endsAt
+        && (currentPromptOccupant.status === "completed" || Date.parse(currentPromptOccupant.endsAt) <= now);
+      if (!taskIsStillComplete) setCompletionPromptSeat(null);
+    }
+  }, [completionPromptSeat, localSeat, now, occupants, selected, userId]);
 
   useEffect(() => {
     if (!backendConfigured) return;
@@ -452,8 +480,7 @@ export default function CafeRoom() {
       const completionCutoff = Date.now() - 12_000;
       for (const session of sessionRows) {
         const finishedAt = session.finished_at ? Date.parse(session.finished_at) : Date.parse(session.ends_at);
-        if (session.status === "cancelled") continue;
-        if (session.status === "completed" && finishedAt < completionCutoff) continue;
+        if (session.status === "completed" && finishedAt < completionCutoff && session.user_id !== currentUserIdRef.current) continue;
         if (!sessionBySeat.has(session.seat_no)) sessionBySeat.set(session.seat_no, session);
       }
 
@@ -467,8 +494,8 @@ export default function CafeRoom() {
           name: profile?.username ?? "Cafe friend",
           avatar: avatar.src,
           userId: seat.occupant_id,
-          task: session?.task_name ?? undefined,
-          endsAt: session?.ends_at ?? undefined,
+          task: session?.status === "cancelled" ? undefined : session?.task_name,
+          endsAt: session?.status === "cancelled" ? undefined : session?.ends_at,
           status: session?.status === "completed" ? "completed" : "active",
         };
       }
@@ -720,6 +747,10 @@ export default function CafeRoom() {
   async function cancelSeatClaim() {
     setSelected(null);
     setTask("");
+    if (retakingTask) {
+      setRetakingTask(false);
+      return;
+    }
     if (backendConfigured) {
       const { error } = await createClient().rpc("leave_cafe");
       if (error) setRoomMessage(userFacingError(error, "We couldn't release your seat. Please try again."));
@@ -783,6 +814,7 @@ export default function CafeRoom() {
 
     setSelected(null);
     setTask("");
+    setRetakingTask(false);
   }
 
   async function leaveSeat(seat: number) {
@@ -801,6 +833,26 @@ export default function CafeRoom() {
       return next;
     });
     setLocalSeat((current) => current === seat ? null : current);
+  }
+
+  function startAnotherTask() {
+    if (completionPromptSeat === null) return;
+    setTask("");
+    setRetakingTask(true);
+    setCompletionPromptSeat(null);
+    setSelected(completionPromptSeat);
+  }
+
+  async function leaveAfterTaskCompletion() {
+    if (completionPromptSeat === null || busy) return;
+    const seat = completionPromptSeat;
+    setCompletionPromptSeat(null);
+    setBusy(true);
+    try {
+      await leaveSeat(seat);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
@@ -1260,6 +1312,18 @@ export default function CafeRoom() {
             </div>
           </div>
           <button className={styles.welcomeDismiss} type="button" onClick={dismissWelcomeNotice} autoFocus>Enter the cafe</button>
+        </section>
+      </div>}
+
+      {completionPromptSeat !== null && selected === null && <div className={styles.backdrop}>
+        <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="completionPromptTitle">
+          <h2 id="completionPromptTitle">Would you like to start another task?</h2>
+          <p className={styles.smallNote}>You can keep your seat for another focus session, or leave the cafe.</p>
+          {roomMessage && <p className={styles.smallNote} role="alert">{roomMessage}</p>}
+          <div className={styles.completionActions}>
+            <button className={styles.startButton} type="button" onClick={startAnotherTask}>YES, START ANOTHER TASK <span>↗</span></button>
+            <button className={styles.leaveCafeButton} type="button" onClick={() => void leaveAfterTaskCompletion()} disabled={busy}>NO, LEAVE THE CAFE</button>
+          </div>
         </section>
       </div>}
 

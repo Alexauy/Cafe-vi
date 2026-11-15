@@ -96,7 +96,7 @@ Requirements:
 - **FR-03.8:** The MVP does not support pausing or resuming a session. A user may end the session early or allow it to complete naturally.
 - **FR-03.9:** When the timer reaches zero, the task card displays a completion state.
 - **FR-03.10:** Users must explicitly start a new session to begin another timed task.
-- **FR-03.11:** Ending or completing a task does not automatically release the seat; the user remains seated until leaving or disconnecting.
+- **FR-03.11:** When a task timer naturally reaches zero, keep the user in their seat and ask whether they want to start another task. Choosing yes opens task setup in the same seat; choosing no leaves the café and releases the seat. Ending a task early does not automatically release the seat.
 - **FR-03.12:** Task information is removed from the shared room when the session ends or is cancelled, subject to a brief completion indicator.
 
 **Acceptance criteria**
@@ -106,9 +106,12 @@ Requirements:
 - Two different users see consistent remaining time, within reasonable network and rendering tolerances.
 - Refreshing or reconnecting does not restart the countdown.
 - Completed sessions do not restart automatically.
+- When a task timer reaches zero, the seated user sees “Would you like to start another task?” with options to start another task or leave the café.
+- Choosing to start another task opens task setup for the same seat without requiring the user to leave and reclaim it.
+- Choosing to leave the café ends any remaining session state and releases the user's seat.
 - A completed or cancelled task does not leave a stale active task card.
 - Ending a task early updates the shared state and removes the active countdown.
-- The seat remains occupied after normal task completion until the user leaves or disconnects.
+- The seat remains occupied at timer completion while the user chooses what to do next.
 
 ### FR-04: Avatar identity and presentation
 
@@ -383,6 +386,20 @@ The existing duration validation and authoritative timer requirements remain. In
 - Values up to exactly 24 hours are accepted; values above 24 hours and non-positive or malformed values are rejected with a clear message.
 - Invalid duration submissions do not create a session or modify the user's seat.
 - A custom-duration session remains synchronized across clients and survives refresh or reconnect without restarting.
+
+### Timer completion follow-up
+
+- **FR-03.22:** When the current user's task reaches its authoritative end time, show a modal asking, “Would you like to start another task?”
+- **FR-03.23:** Choosing yes opens the task setup form for the user's existing seat; starting a valid task creates a new authoritative session without a seat change.
+- **FR-03.24:** Choosing no leaves the café, releases the seat, and ensures no active work session remains for that user.
+- **FR-03.25:** Other occupants' timer completion does not open a prompt in the current user's browser.
+
+**Acceptance criteria**
+
+- An expired timer prompts only its owner, including after a refresh while the user still occupies the seat.
+- Starting another task preserves the same seat and synchronizes the new task and timer to other clients.
+- Choosing to leave frees the seat and removes the user's task from the shared room.
+- Cancelling task setup after choosing to continue returns to the completion prompt without silently releasing the seat.
 
 ### Personal activity calendar and daily diary
 
