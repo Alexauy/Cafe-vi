@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { getAuthRedirectUrl } from "@/lib/auth-redirect-url";
 import { userFacingError } from "@/lib/user-facing-error";
 import styles from "./login.module.css";
 
@@ -26,7 +27,7 @@ export default function LoginPage() {
     try {
       const supabase = createClient();
       if (mode === "reset") {
-        const callbackUrl = new URL("/auth/callback", window.location.origin);
+        const callbackUrl = new URL(getAuthRedirectUrl("/auth/callback"));
         callbackUrl.searchParams.set("next", "/reset-password");
         const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: callbackUrl.toString() });
         if (error) throw error;
@@ -38,7 +39,7 @@ export default function LoginPage() {
         router.replace("/");
         router.refresh();
       } else {
-        const emailRedirectTo = new URL("/auth/callback", window.location.origin).toString();
+        const emailRedirectTo = getAuthRedirectUrl("/auth/callback");
         const { data, error } = await supabase.auth.signUp({
           email,
           password,

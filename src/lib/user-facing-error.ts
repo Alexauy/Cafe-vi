@@ -41,6 +41,9 @@ export function userFacingError(error: unknown, fallback = "Something went wrong
     return "Use a password with at least 8 characters.";
   }
   if (normalized.includes("invalid email")) return "Enter a valid email address.";
+  if (normalized.includes("email rate limit") || normalized.includes("over_email_send_rate_limit")) {
+    return "Too many emails have been requested. Please wait for the email limit to reset before requesting another confirmation or password-reset link.";
+  }
   if (normalized.includes("rate limit") || normalized.includes("too many requests")) return "Too many attempts. Please wait a little and try again.";
   if (normalized.includes("failed to fetch") || normalized.includes("network") || normalized.includes("timeout")) {
     return "We couldn't connect. Check your internet connection and try again.";

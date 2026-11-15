@@ -1,8 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getAuthRedirectUrl } from "@/lib/auth-redirect-url";
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
+  const hostedCallbackUrl = new URL(getAuthRedirectUrl("/auth/callback"));
+  if (requestUrl.origin !== hostedCallbackUrl.origin) {
+    const callbackPath = `${requestUrl.pathname}${requestUrl.search}${requestUrl.hash}`;
+    return NextResponse.redirect(new URL(callbackPath, hostedCallbackUrl.origin));
+  }
+
   const code = requestUrl.searchParams.get("code");
   const requestedNext = requestUrl.searchParams.get("next") ?? "/";
   const requestedNextUrl = new URL(requestedNext, requestUrl.origin);
