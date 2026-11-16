@@ -50,7 +50,7 @@ export default function LoginPage() {
           router.replace("/");
           router.refresh();
         } else {
-          setMessage("Check your email to confirm your account, then sign in here.");
+          setMessage("If this email can be used for a new account, check your inbox for a confirmation link. If you already have an account, signing up again won't create another one or send a new link; sign in or use “Forgot your password?” instead.");
         }
       }
     } catch (error) {

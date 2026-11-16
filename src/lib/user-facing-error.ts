@@ -36,7 +36,7 @@ export function userFacingError(error: unknown, fallback = "Something went wrong
   if (normalized.includes("invalid_seat_number")) return "That seat isn't available. Please choose another.";
   if (normalized.includes("invalid login credentials")) return "This password is incorrect.";
   if (normalized.includes("email not confirmed")) return "Please confirm your email before signing in.";
-  if (normalized.includes("user already registered")) return "An account already exists with that email. Try signing in instead.";
+  if (normalized.includes("user already registered")) return "If you've already signed up, try signing in or resetting your password.";
   if (normalized.includes("password") && (normalized.includes("short") || normalized.includes("characters"))) {
     return "Use a password with at least 8 characters.";
   }
