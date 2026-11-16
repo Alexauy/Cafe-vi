@@ -23,9 +23,26 @@ export default function ResetPasswordPage() {
       return () => { active = false; };
     }
 
+    const params = new URLSearchParams(window.location.search);
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const linkType = params.get("type") ?? fragment.get("type");
+    if (linkType === "signup" || linkType === "email" || linkType === "invite") {
+      void createClient().auth.getSession().then(
+        (result: { data: { session: unknown | null } }) => {
+          if (active) window.location.replace(result.data.session ? "/login?confirmed=1" : "/login?confirmation=failed");
+        },
+        (error: unknown) => {
+          console.error("Could not finish processing the email confirmation link:", error);
+          if (active) window.location.replace("/login?confirmation=failed");
+        },
+      );
+      return () => { active = false; };
+    }
+
+    const isRecoveryLink = params.get("recovery") === "1" || linkType === "recovery";
     void createClient().auth.getUser().then((result: { data: { user: unknown | null }; error: unknown | null }) => {
       if (!active) return;
-      setValidLink(Boolean(result.data.user) && !result.error);
+      setValidLink(isRecoveryLink && Boolean(result.data.user) && !result.error);
       setReady(true);
     }).catch(() => {
       if (!active) return;

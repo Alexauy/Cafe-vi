@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { getAuthRedirectUrl } from "@/lib/auth-redirect-url";
 import { userFacingError } from "@/lib/user-facing-error";
@@ -19,6 +19,19 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const configured = isSupabaseConfigured();
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("confirmed") === "1") {
+      setMessageTone("success");
+      setMessage("Your email is confirmed. Sign in to continue.");
+      window.history.replaceState(null, "", "/login");
+    } else if (params.get("confirmation") === "failed") {
+      setMessageTone("error");
+      setMessage("We couldn't confirm that email link. It may have expired or already been used. Request a new link and try again.");
+      window.history.replaceState(null, "", "/login");
+    }
+  }, []);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
@@ -28,7 +41,7 @@ export default function LoginPage() {
       const supabase = createClient();
       if (mode === "reset") {
         const callbackUrl = new URL(getAuthRedirectUrl("/auth/callback"));
-        callbackUrl.searchParams.set("next", "/reset-password");
+        callbackUrl.searchParams.set("next", "/reset-password?recovery=1");
         const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: callbackUrl.toString() });
         if (error) throw error;
         setMessageTone("success");
@@ -39,18 +52,19 @@ export default function LoginPage() {
         router.replace("/");
         router.refresh();
       } else {
-        const emailRedirectTo = getAuthRedirectUrl("/auth/callback");
+        const callbackUrl = new URL(getAuthRedirectUrl("/auth/callback"));
+        callbackUrl.searchParams.set("next", "/login?confirmed=1");
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo },
+          options: { emailRedirectTo: callbackUrl.toString() },
         });
         if (error) throw error;
         if (data.session) {
           router.replace("/");
           router.refresh();
         } else {
-          setMessage("If this email can be used for a new account, check your inbox for a confirmation link. If you already have an account, signing up again won't create another one or send a new link; sign in or use “Forgot your password?” instead.");
+          setMessage("Check your email for a confirmation link. If you already created an account with this email, please login with that information instead or reset your password.");
         }
       }
     } catch (error) {
